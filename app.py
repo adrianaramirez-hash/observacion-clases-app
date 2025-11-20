@@ -103,16 +103,16 @@ def respuesta_a_puntos(valor):
 def clasificar_por_puntos(total_puntos):
     if pd.isna(total_puntos):
         return ""
-    if 97 <= total_puntos <= 114:
+    # 97 puntos o más → Consolidado
+    if total_puntos >= 97:
         return "Consolidado"
-    elif 76 <= total_puntos <= 96:
+    # 76 a 96 → En proceso
+    elif total_puntos >= 76:
         return "En proceso"
-    elif 38 <= total_puntos <= 75:
-        return "No consolidado"
-    elif total_puntos < 38:
-        return "Por debajo de rango"
+    # Todo lo demás (0 a 75) → No consolidado
     else:
-        return "Por encima de rango definido"
+        return "No consolidado"
+
 
 # Columnas de puntaje: M a AZ (índices 12 a 51, 0-based)
 todas_cols = list(df_respuestas.columns)
@@ -234,3 +234,4 @@ if docente_sel != "(ninguno)":
 
     st.write(f"Observaciones de **{docente_sel}** en el filtro actual:")
     st.dataframe(df_doc, use_container_width=True)
+
