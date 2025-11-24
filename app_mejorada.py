@@ -4,7 +4,7 @@ import gspread
 import json
 from datetime import datetime
 from google.oauth2.service_account import Credentials
-
+import altair as alt
 
 # --------------------------------------------------
 # CONFIGURACIÓN BÁSICA DE LA PÁGINA
@@ -20,6 +20,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
+
 
 @st.cache_data(ttl=60)
 def cargar_datos_desde_sheets():
@@ -83,6 +84,7 @@ if not df_cortes.empty:
 # FUNCIONES DE PUNTAJE Y CLASIFICACIÓN
 # --------------------------------------------------
 
+
 def respuesta_a_puntos(valor):
     """Convierte una respuesta (Sí / No / Sin evidencias / número) a puntos."""
     if pd.isna(valor):
@@ -100,6 +102,7 @@ def respuesta_a_puntos(valor):
     except ValueError:
         return None
 
+
 def clasificar_por_puntos(total_puntos):
     if pd.isna(total_puntos):
         return ""
@@ -116,8 +119,8 @@ def clasificar_por_puntos(total_puntos):
 
 # Columnas de puntaje: M a AZ (índices 12 a 51, 0-based)
 todas_cols = list(df_respuestas.columns)
-start_idx = 12   # M
-end_idx = 52     # hasta AZ (52 en 1-based, exclusivo)
+start_idx = 12  # M
+end_idx = 52  # hasta AZ (52 en 1-based, exclusivo)
 cols_puntaje = todas_cols[start_idx:end_idx]
 
 # --------------------------------------------------
@@ -145,7 +148,9 @@ if corte_seleccionado != "Todos los cortes" and not df_cortes.empty:
             mask = (df_filtrado[col_fecha] >= fecha_ini) & (df_filtrado[col_fecha] <= fecha_fin)
             df_filtrado = df_filtrado.loc[mask]
 
-servicios_disponibles = ["Todos los servicios"] + sorted(df_filtrado[COL_SERVICIO].dropna().unique().tolist())
+servicios_disponibles = ["Todos los servicios"] + sorted(
+    df_filtrado[COL_SERVICIO].dropna().unique().tolist()
+)
 servicio_seleccionado = st.sidebar.selectbox("Selecciona un servicio", servicios_disponibles)
 
 if servicio_seleccionado != "Todos los servicios":
@@ -162,6 +167,7 @@ if df_filtrado.empty:
 # CÁLCULO DE PUNTOS POR OBSERVACIÓN
 # --------------------------------------------------
 
+
 def calcular_total_puntos_fila(row):
     total = 0
     for col in cols_puntaje:
@@ -172,36 +178,36 @@ def calcular_total_puntos_fila(row):
             total += puntos
     return total
 
+
 df_filtrado = df_filtrado.copy()
-df_filtrado["Total_puntos_observación"] = df_filtrado.apply(calcular_total_puntos_fila, axis=1)
+df_filtrado["Total_puntos_observación"] = df_filtrado.apply(
+    calcular_total_puntos_fila, axis=1
+)
+
+# Clasificación a nivel de OBSERVACIÓN (para KPIs y gráfica)
+df_filtrado["Clasificación_observación"] = df_filtrado[
+    "Total_puntos_observación"
+].apply(clasificar_por_puntos)
 
 # ------------------------------------------------------------------
 # TARJETAS RESUMEN (KPIs) Y GRÁFICA DE CLASIFICACIÓN
 # ------------------------------------------------------------------
 
-# OJO: este bloque asume que ya existe un DataFrame df_filtrado
-# con las observaciones según los filtros de corte y servicio,
-# y que tiene al menos estas columnas:
-#   - "Clasificación"  (Consolidado / En proceso / No consolidado)
-#   - "Indica el servicio"
-
-# Si tu DataFrame filtrado se llama diferente, cámbialo aquí.
 df_base = df_filtrado.copy()
-
 total_obs = len(df_base)
 
-if total_obs > 0:
-    # Conteos por clasificación
-    n_consol = (df_base["Clasificación"] == "Consolidado").sum()
-    n_proceso = (df_base["Clasificación"] == "En proceso").sum()
-    n_no = (df_base["Clasificación"] == "No consolidado").sum()
+# Inicializamos en 0 por si algo falta
+n_consol = n_proceso = n_no = 0
+pct_consol = pct_proceso = pct_no = 0
+
+if "Clasificación_observación" in df_base.columns and total_obs > 0:
+    n_consol = (df_base["Clasificación_observación"] == "Consolidado").sum()
+    n_proceso = (df_base["Clasificación_observación"] == "En proceso").sum()
+    n_no = (df_base["Clasificación_observación"] == "No consolidado").sum()
 
     pct_consol = n_consol * 100 / total_obs
     pct_proceso = n_proceso * 100 / total_obs
     pct_no = n_no * 100 / total_obs
-else:
-    n_consol = n_proceso = n_no = 0
-    pct_consol = pct_proceso = pct_no = 0
 
 # Fila de tarjetas
 col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
@@ -223,21 +229,17 @@ st.markdown("---")
 # ------------------------------------------------------------------
 # GRÁFICA DE CLASIFICACIÓN POR SERVICIO
 # ------------------------------------------------------------------
-import altair as alt
 
-if total_obs > 0:
+if total_obs > 0 and "Clasificación_observación" in df_base.columns:
     df_graf = (
-        df_base
-        .groupby(["Indica el servicio", "Clasificación"])
+        df_base.groupby([COL_SERVICIO, "Clasificación_observación"])
         .size()
         .reset_index(name="conteo")
     )
 
-    # Pasar a porcentaje dentro de cada servicio
-    df_totales_servicio = (
-        df_graf.groupby("Indica el servicio")["conteo"].transform("sum")
-    )
-    df_graf["porcentaje"] = df_graf["conteo"] * 100 / df_totales_servicio
+    # Porcentaje dentro de cada servicio
+    totales_serv = df_graf.groupby(COL_SERVICIO)["conteo"].transform("sum")
+    df_graf["porcentaje"] = df_graf["conteo"] * 100 / totales_serv
 
     st.subheader("Clasificación por servicio")
 
@@ -245,19 +247,19 @@ if total_obs > 0:
         alt.Chart(df_graf)
         .mark_bar()
         .encode(
-            x=alt.X("Indica el servicio:N", title="Servicio"),
+            x=alt.X(f"{COL_SERVICIO}:N", title="Servicio"),
             y=alt.Y("porcentaje:Q", title="Porcentaje"),
-            color=alt.Color("Clasificación:N"),
+            color=alt.Color("Clasificación_observación:N", title="Clasificación"),
             tooltip=[
-                "Indica el servicio",
-                "Clasificación",
-                alt.Tooltip("porcentaje:Q", format=".1f", title="Porcentaje (%)"),
-                "conteo"
-            ]
+                COL_SERVICIO,
+                "Clasificación_observación",
+                alt.Tooltip(
+                    "porcentaje:Q", format=".1f", title="Porcentaje (%)"
+                ),
+                "conteo",
+            ],
         )
-        .properties(
-            height=300
-        )
+        .properties(height=300)
     )
 
     st.altair_chart(chart, use_container_width=True)
@@ -271,17 +273,18 @@ st.markdown("---")
 st.subheader("Resumen por servicio")
 
 resumen_servicio = (
-    df_filtrado
-    .groupby(COL_SERVICIO)
+    df_filtrado.groupby(COL_SERVICIO)
     .agg(
         Observaciones=("Total_puntos_observación", "count"),
         Docentes_observados=(COL_DOCENTE, "nunique"),
-        Total_puntos=("Total_puntos_observación", "sum")
+        Total_puntos=("Total_puntos_observación", "sum"),
     )
     .reset_index()
 )
 
-resumen_servicio["Promedio_puntos_por_obs"] = resumen_servicio["Total_puntos"] / resumen_servicio["Observaciones"]
+resumen_servicio["Promedio_puntos_por_obs"] = (
+    resumen_servicio["Total_puntos"] / resumen_servicio["Observaciones"]
+)
 
 st.dataframe(resumen_servicio, use_container_width=True)
 
@@ -292,16 +295,17 @@ st.dataframe(resumen_servicio, use_container_width=True)
 st.subheader("Detalle por docente (en el corte/servicio seleccionado)")
 
 resumen_docente = (
-    df_filtrado
-    .groupby(COL_DOCENTE)
+    df_filtrado.groupby(COL_DOCENTE)
     .agg(
         N_observaciones=("Total_puntos_observación", "count"),
-        Total_puntos=("Total_puntos_observación", "sum")
+        Total_puntos=("Total_puntos_observación", "sum"),
     )
     .reset_index()
 )
 
-resumen_docente["Clasificación"] = resumen_docente["Total_puntos"].apply(clasificar_por_puntos)
+resumen_docente["Clasificación"] = resumen_docente["Total_puntos"].apply(
+    clasificar_por_puntos
+)
 
 st.dataframe(resumen_docente, use_container_width=True)
 
@@ -319,7 +323,9 @@ if docente_sel != "(ninguno)":
     df_doc = df_doc[[col_fecha, COL_SERVICIO, "Total_puntos_observación"]]
     df_doc = df_doc.sort_values(col_fecha)
     df_doc.rename(columns={col_fecha: "Fecha"}, inplace=True)
-    df_doc["Clasificación_observación"] = df_doc["Total_puntos_observación"].apply(clasificar_por_puntos)
+    df_doc["Clasificación_observación"] = df_doc[
+        "Total_puntos_observación"
+    ].apply(clasificar_por_puntos)
 
     st.write(f"Observaciones de **{docente_sel}** en el filtro actual:")
     st.dataframe(df_doc, use_container_width=True)
