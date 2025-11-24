@@ -79,7 +79,6 @@ df_respuestas["Fecha_filtro"] = fecha_form.fillna(fecha_ts)
 # Esta es la columna que usaremos en todos los filtros por corte
 col_fecha = "Fecha_filtro"
 
-
 # Columnas clave
 COL_SERVICIO = "Indica el servicio"
 COL_DOCENTE = "Nombre del docente"
@@ -138,7 +137,6 @@ end_idx = 52  # hasta AZ (52 en 1-based, exclusivo)
 cols_puntaje = todas_cols[start_idx:end_idx]
 
 # Definición de ÁREAS A–D en función de rangos M–AZ
-# Ajuste según tu descripción:
 # A: M–Z (14 columnas)           -> indices 0 a 13
 # B: AA–AP (16 columnas)         -> indices 14 a 29
 # C: AQ–AT (4 columnas)          -> indices 30 a 33
@@ -366,7 +364,13 @@ if docente_sel != "(ninguno)":
     df_doc["Etiqueta_obs"] = etiqueta_base
 
     # Tabla resumida de historial
-    cols_hist = [col_fecha, COL_SERVICIO, "Grupo", "Total_puntos_observación", "Clasificación_observación"]
+    cols_hist = [
+        col_fecha,
+        COL_SERVICIO,
+        "Grupo",
+        "Total_puntos_observación",
+        "Clasificación_observación",
+    ]
     cols_hist = [c for c in cols_hist if c in df_doc.columns]
 
     st.write(f"Observaciones de **{docente_sel}** en el filtro actual:")
@@ -435,10 +439,16 @@ if docente_sel != "(ninguno)":
     recom = fila_obs.get("Recomendaciones generales para la mejora continua", "")
 
     st.markdown("**Fortalezas observadas:**")
-    st.write(fortalezas if isinstance(fortalezas, str) and fortalezas.strip() else "Sin registro.")
+    st.write(
+        fortalezas if isinstance(fortalezas, str) and fortalezas.strip() else "Sin registro."
+    )
 
     st.markdown("**Áreas de oportunidad observadas:**")
-    st.write(areas_op if isinstance(areas_op, str) and areas_op.strip() else "Sin registro.")
+    st.write(
+        areas_op if isinstance(areas_op, str) and areas_op.strip() else "Sin registro."
+    )
 
     st.markdown("**Recomendaciones generales para la mejora continua:**")
-    st.write(recom if isinstance(recom, str) and recom.strip() else "Sin registro.")
+    st.write(
+        recom if isinstance(recom, str) and recom.strip() else "Sin registro."
+    )
