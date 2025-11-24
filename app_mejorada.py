@@ -123,6 +123,19 @@ start_idx = 12  # M
 end_idx = 52  # hasta AZ (52 en 1-based, exclusivo)
 cols_puntaje = todas_cols[start_idx:end_idx]
 
+# Definición de ÁREAS A–D en función de rangos M–AZ
+# Ajuste según tu descripción:
+# A: M–Z (14 columnas)           -> indices 0 a 13
+# B: AA–AP (16 columnas)         -> indices 14 a 29
+# C: AQ–AT (4 columnas)          -> indices 30 a 33
+# D: AU–AZ (6 columnas)          -> indices 34 a 39
+AREAS = {
+    "A. Planeación de sesión en el aula virtual": cols_puntaje[0:14],
+    "B. Presentación y desarrollo de la sesión": cols_puntaje[14:30],
+    "C. Dinámicas interpersonales": cols_puntaje[30:34],
+    "D. Administración de la sesión": cols_puntaje[34:40],
+}
+
 # --------------------------------------------------
 # SIDEBAR: SELECCIÓN DE CORTE Y SERVICIO
 # --------------------------------------------------
@@ -319,13 +332,99 @@ docentes_lista = sorted(resumen_docente[COL_DOCENTE].dropna().unique().tolist())
 docente_sel = st.selectbox("Selecciona un docente", ["(ninguno)"] + docentes_lista)
 
 if docente_sel != "(ninguno)":
+    # Todas las observaciones del docente dentro del filtro
     df_doc = df_filtrado[df_filtrado[COL_DOCENTE] == docente_sel].copy()
-    df_doc = df_doc[[col_fecha, COL_SERVICIO, "Total_puntos_observación"]]
     df_doc = df_doc.sort_values(col_fecha)
-    df_doc.rename(columns={col_fecha: "Fecha"}, inplace=True)
-    df_doc["Clasificación_observación"] = df_doc[
-        "Total_puntos_observación"
-    ].apply(clasificar_por_puntos)
+
+    # Etiqueta amigable para elegir observación
+    etiqueta_base = df_doc[col_fecha].dt.strftime("%Y-%m-%d").fillna("sin fecha")
+    if "Grupo" in df_doc.columns:
+        etiqueta_base = (
+            etiqueta_base
+            + " | "
+            + df_doc[COL_SERVICIO].astype(str)
+            + " | Grupo: "
+            + df_doc["Grupo"].astype(str)
+        )
+    else:
+        etiqueta_base = etiqueta_base + " | " + df_doc[COL_SERVICIO].astype(str)
+
+    df_doc["Etiqueta_obs"] = etiqueta_base
+
+    # Tabla resumida de historial
+    cols_hist = [col_fecha, COL_SERVICIO, "Grupo", "Total_puntos_observación", "Clasificación_observación"]
+    cols_hist = [c for c in cols_hist if c in df_doc.columns]
 
     st.write(f"Observaciones de **{docente_sel}** en el filtro actual:")
-    st.dataframe(df_doc, use_container_width=True)
+    st.dataframe(df_doc[cols_hist], use_container_width=True)
+
+    # Selectbox para elegir UNA observación
+    idx_sel = st.selectbox(
+        "Elige una observación para ver detalle por área",
+        df_doc.index,
+        format_func=lambda i: df_doc.loc[i, "Etiqueta_obs"],
+    )
+
+    fila_obs = df_doc.loc[idx_sel]
+
+    # -------------------------
+    # Detalle por ÁREA (A–D)
+    # -------------------------
+    resumen_areas = []
+
+    for area, columnas in AREAS.items():
+        puntos = 0
+        max_puntos = 0
+
+        for col in columnas:
+            if col in fila_obs.index:
+                p = respuesta_a_puntos(fila_obs[col])
+                if p is not None:
+                    puntos += p
+                    max_puntos += 3  # máximo por reactivo
+
+        porcentaje = puntos * 100 / max_puntos if max_puntos > 0 else None
+
+        resumen_areas.append(
+            {
+                "Área": area,
+                "Puntos": puntos,
+                "Máx. posible": max_puntos,
+                "% logro": porcentaje,
+            }
+        )
+
+    df_areas = pd.DataFrame(resumen_areas)
+
+    st.subheader("Detalle por área de la observación seleccionada")
+    st.dataframe(df_areas, use_container_width=True)
+
+    chart_areas = (
+        alt.Chart(df_areas)
+        .mark_bar()
+        .encode(
+            x=alt.X("Área:N", title="Área evaluada"),
+            y=alt.Y("% logro:Q", title="% de logro"),
+            tooltip=["Área", "Puntos", "Máx. posible", "% logro"],
+        )
+        .properties(height=300)
+    )
+    st.altair_chart(chart_areas, use_container_width=True)
+
+    # -------------------------
+    # Comentarios cualitativos
+    # -------------------------
+    st.subheader("Comentarios cualitativos de la observación seleccionada")
+
+    fortalezas = fila_obs.get("Fortalezas observadas en la sesión", "")
+    areas_op = fila_obs.get("Áreas de oportunidad observadas en la sesión", "")
+    recom = fila_obs.get("Recomendaciones generales para la mejora continua", "")
+
+    st.markdown("**Fortalezas observadas:**")
+    st.write(fortalezas if isinstance(fortalezas, str) and fortalezas.strip() else "Sin registro.")
+
+    st.markdown("**Áreas de oportunidad observadas:**")
+    st.write(areas_op if isinstance(areas_op, str) and areas_op.strip() else "Sin registro.")
+
+    st.markdown("**Recomendaciones generales para la mejora continua:**")
+    st.write(recom if isinstance(recom, str) and recom.strip() else "Sin registro.")
