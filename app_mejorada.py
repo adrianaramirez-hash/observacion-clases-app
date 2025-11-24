@@ -175,6 +175,95 @@ def calcular_total_puntos_fila(row):
 df_filtrado = df_filtrado.copy()
 df_filtrado["Total_puntos_observación"] = df_filtrado.apply(calcular_total_puntos_fila, axis=1)
 
+# ------------------------------------------------------------------
+# TARJETAS RESUMEN (KPIs) Y GRÁFICA DE CLASIFICACIÓN
+# ------------------------------------------------------------------
+
+# OJO: este bloque asume que ya existe un DataFrame df_filtrado
+# con las observaciones según los filtros de corte y servicio,
+# y que tiene al menos estas columnas:
+#   - "Clasificación"  (Consolidado / En proceso / No consolidado)
+#   - "Indica el servicio"
+
+# Si tu DataFrame filtrado se llama diferente, cámbialo aquí.
+df_base = df_filtrado.copy()
+
+total_obs = len(df_base)
+
+if total_obs > 0:
+    # Conteos por clasificación
+    n_consol = (df_base["Clasificación"] == "Consolidado").sum()
+    n_proceso = (df_base["Clasificación"] == "En proceso").sum()
+    n_no = (df_base["Clasificación"] == "No consolidado").sum()
+
+    pct_consol = n_consol * 100 / total_obs
+    pct_proceso = n_proceso * 100 / total_obs
+    pct_no = n_no * 100 / total_obs
+else:
+    n_consol = n_proceso = n_no = 0
+    pct_consol = pct_proceso = pct_no = 0
+
+# Fila de tarjetas
+col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
+
+with col_kpi1:
+    st.metric("Obs. totales", total_obs)
+
+with col_kpi2:
+    st.metric("% Consolidado", f"{pct_consol:.0f} %")
+
+with col_kpi3:
+    st.metric("% En proceso", f"{pct_proceso:.0f} %")
+
+with col_kpi4:
+    st.metric("% No consolidado", f"{pct_no:.0f} %")
+
+st.markdown("---")
+
+# ------------------------------------------------------------------
+# GRÁFICA DE CLASIFICACIÓN POR SERVICIO
+# ------------------------------------------------------------------
+import altair as alt
+
+if total_obs > 0:
+    df_graf = (
+        df_base
+        .groupby(["Indica el servicio", "Clasificación"])
+        .size()
+        .reset_index(name="conteo")
+    )
+
+    # Pasar a porcentaje dentro de cada servicio
+    df_totales_servicio = (
+        df_graf.groupby("Indica el servicio")["conteo"].transform("sum")
+    )
+    df_graf["porcentaje"] = df_graf["conteo"] * 100 / df_totales_servicio
+
+    st.subheader("Clasificación por servicio")
+
+    chart = (
+        alt.Chart(df_graf)
+        .mark_bar()
+        .encode(
+            x=alt.X("Indica el servicio:N", title="Servicio"),
+            y=alt.Y("porcentaje:Q", title="Porcentaje"),
+            color=alt.Color("Clasificación:N"),
+            tooltip=[
+                "Indica el servicio",
+                "Clasificación",
+                alt.Tooltip("porcentaje:Q", format=".1f", title="Porcentaje (%)"),
+                "conteo"
+            ]
+        )
+        .properties(
+            height=300
+        )
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
+st.markdown("---")
+
 # --------------------------------------------------
 # RESUMEN POR SERVICIO
 # --------------------------------------------------
