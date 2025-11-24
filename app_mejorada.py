@@ -34,7 +34,7 @@ def cargar_datos_desde_sheets():
     client = gspread.authorize(creds)
 
     # 👉 URL DE TU GOOGLE SHEETS
-    SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1CK7nphUH9YS2JqSWRhrgamYoQdgJCsn5tERA-WnwXes/edit?gid=1166549366#gid=1166549366"
+    SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1CK7nphUH9YS2JqSWRhrgamYoQdgJCsn5tERA-WnwXes/edit?resourcekey=&gid=1166549366#gid=1166549366"
 
     sh = client.open_by_url(SPREADSHEET_URL)
 
