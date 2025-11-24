@@ -62,9 +62,23 @@ except Exception as e:
 # LIMPIEZA BÁSICA DE DATOS
 # --------------------------------------------------
 
-# Columna de fecha: usamos 'Fecha' o 'Marca temporal'
-col_fecha = "Fecha" if "Fecha" in df_respuestas.columns else "Marca temporal"
-df_respuestas[col_fecha] = pd.to_datetime(df_respuestas[col_fecha], errors="coerce")
+# Unificamos fecha de formulario y marca temporal en una sola columna
+if "Fecha" in df_respuestas.columns:
+    fecha_form = pd.to_datetime(df_respuestas["Fecha"], errors="coerce")
+else:
+    fecha_form = pd.Series(pd.NaT, index=df_respuestas.index)
+
+if "Marca temporal" in df_respuestas.columns:
+    fecha_ts = pd.to_datetime(df_respuestas["Marca temporal"], errors="coerce")
+else:
+    fecha_ts = pd.Series(pd.NaT, index=df_respuestas.index)
+
+# Si la fecha del formulario está vacía, usamos la de marca temporal
+df_respuestas["Fecha_filtro"] = fecha_form.fillna(fecha_ts)
+
+# Esta es la columna que usaremos en todos los filtros por corte
+col_fecha = "Fecha_filtro"
+
 
 # Columnas clave
 COL_SERVICIO = "Indica el servicio"
