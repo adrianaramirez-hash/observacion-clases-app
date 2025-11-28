@@ -1,7 +1,18 @@
 import streamlit as st
 
+# Aquí después vamos a traer los mismos imports que usa tu app original
+# (pandas, plotly, etc.). Por ahora dejamos solo Streamlit.
+
 def pagina_observacion_clases():
-    st.subheader("Observación de clases")
-    st.write("✅ El módulo de Observación de clases se importó correctamente.")
-    st.write("Luego aquí pegaremos el dashboard real.")
+    st.header("Observación de clases")
+
+    st.info(
+        "✅ El módulo de Observación de clases está listo para integrar el dashboard real.\n\n"
+        "En el siguiente paso vamos a copiar el código de tu app original y pegarlo aquí."
+    )
+
+    # 🔜 En el siguiente paso:
+    # 1) Copiaremos los 'import ...' que tienes en tu app.py original.
+    # 2) Copiaremos todo el contenido de la app (gráficas, filtros, etc.)
+    #    dentro de esta función, debajo de este comentario.
 
