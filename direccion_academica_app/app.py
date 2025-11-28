@@ -1,5 +1,7 @@
 import streamlit as st
 from modules.observacion_clases import pagina_observacion_clases
+from modules.encuesta_calidad import pagina_encuesta_calidad
+
 
 # Configuración general de la página
 st.set_page_config(
@@ -42,12 +44,11 @@ def main():
     # ===== Menú principal =====
     opcion = st.selectbox("Selecciona un módulo:", MENU)
 
-    # ===== Navegación por módulos =====
-    if opcion == "Observación de clases":
-        pagina_observacion_clases()
-    else:
-        st.info(f"El módulo **{opcion}** aún no está configurado.")
-
-if __name__ == "__main__":
-    main()
+  # ===== Navegación por módulos =====
+if opcion == "Observación de clases":
+    pagina_observacion_clases()
+elif opcion == "Encuesta de calidad":
+    pagina_encuesta_calidad()
+else:
+    st.info(f"El módulo **{opcion}** aún no está configurado.")
 
