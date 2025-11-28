@@ -1,6 +1,7 @@
 import streamlit as st
 from modules.observacion_clases import pagina_observacion_clases
 
+# Configuración general de la página
 st.set_page_config(
     page_title="Dirección Académica UDL",
     layout="wide"
@@ -17,24 +18,26 @@ MENU = [
 ]
 
 def main():
-    # Encabezado con logo centrado y tamaño controlado
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.image(
-            "direccion_academica_app/assets/udl_logo.png",
-            width=320  # 👈 AJUSTA AQUÍ EL TAMAÑO (ej. 250, 300, 400...)
-        )
-        st.markdown(
-            "<h2 style='text-align:center; margin-top:0;'>Dirección Académica</h2>",
-            unsafe_allow_html=True
-        )
+    # ===== Encabezado: logo centrado + título =====
+    header = st.container()
+    with header:
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.image(
+                "direccion_academica_app/assets/udl_logo.png",
+                width=320,          # 👈 ajusta este número si quieres más chico/grande
+            )
+            st.markdown(
+                "<h2 style='text-align:center; margin-top:0;'>Dirección Académica</h2>",
+                unsafe_allow_html=True
+            )
 
     st.markdown("---")
 
-    # Menú principal
+    # ===== Menú principal =====
     opcion = st.selectbox("Selecciona un módulo:", MENU)
 
-    # Navegación por módulos
+    # ===== Navegación por módulos =====
     if opcion == "Observación de clases":
         pagina_observacion_clases()
     else:
