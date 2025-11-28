@@ -17,17 +17,20 @@ MENU = [
 ]
 
 def main():
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        st.image("assets/udl_logo.png", use_column_width=True)
-        st.markdown(
-            "<h2 style='text-align:center; margin-top:0;'>Dirección Académica</h2>",
-            unsafe_allow_html=True
-        )
+    # LOGO
+    st.image("direccion_academica_app/assets/udl_logo.png", use_column_width=True)
+
+    # TÍTULO
+    st.markdown(
+        "<h2 style='text-align:center; margin-top:0;'>Dirección Académica</h2>",
+        unsafe_allow_html=True
+    )
     st.markdown("---")
 
+    # MENÚ
     opcion = st.selectbox("Selecciona un módulo:", MENU)
 
+    # NAVEGACIÓN
     if opcion == "Observación de clases":
         pagina_observacion_clases()
     else:
