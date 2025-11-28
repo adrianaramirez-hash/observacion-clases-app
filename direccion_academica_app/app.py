@@ -18,19 +18,21 @@ MENU = [
 ]
 
 def main():
-    # ===== Encabezado: logo y título centrados en medio =====
-    # Columnas simétricas → el contenido de col2 queda justo al centro
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
+    # ===== Encabezado: logo a la izquierda, texto a la derecha =====
+    col_logo, col_spacer, col_title = st.columns([1, 1, 3])
+
+    with col_logo:
         st.image(
             "direccion_academica_app/assets/udl_logo.png",
-            width=320,  # puedes subir o bajar este número si quieres
+            width=180,  # puedes subir/bajar este valor
         )
+
+    with col_title:
         st.markdown(
             """
-            <h2 style='text-align:center; margin-top:0.1rem; margin-bottom:0;'>
+            <h1 style='margin-top:1.5rem; margin-bottom:0;'>
                 Dirección Académica
-            </h2>
+            </h1>
             """,
             unsafe_allow_html=True
         )
