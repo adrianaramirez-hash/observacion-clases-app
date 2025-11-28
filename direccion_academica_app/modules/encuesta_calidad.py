@@ -32,8 +32,7 @@ def cargar_encuesta_calidad():
 
     # 2) URL DEL GOOGLE SHEETS DE ENCUESTA DE CALIDAD
     SPREADSHEET_URL = (
-        "https://docs.google.com/spreadsheets/d/1WAk0Jv42MIyn0iImsAT2YuCsC8-YphKnFxgJYQZKjqU
-"
+        "https://docs.google.com/spreadsheets/d/1WAk0Jv42MIyn0iImsAT2YuCsC8-YphKnFxgJYQZKjqU"
     )
 
     sh = client.open_by_url(SPREADSHEET_URL)
@@ -76,8 +75,7 @@ def cargar_encuesta_calidad():
 def pagina_encuesta_calidad():
     """
     Módulo de Encuesta de calidad.
-    Por ahora: carga datos, muestra KPIs básicos y la tabla completa.
-    Más adelante le agregamos gráficas y filtros.
+    Carga datos, muestra KPIs básicos y la tabla completa.
     """
 
     st.subheader("Encuesta de calidad")
@@ -164,3 +162,4 @@ def pagina_encuesta_calidad():
         "(satisfacción general, por servicio, por nivel educativo, etc.) "
         "y construir las gráficas correspondientes."
     )
+
