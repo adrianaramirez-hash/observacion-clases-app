@@ -1,4 +1,10 @@
 import streamlit as st
+import pandas as pd
+import gspread
+import json
+from datetime import datetime
+from google.oauth2.service_account import Credentials
+import altair as alt
 
 # Aquí después vamos a traer los mismos imports que usa tu app original
 # (pandas, plotly, etc.). Por ahora dejamos solo Streamlit.
