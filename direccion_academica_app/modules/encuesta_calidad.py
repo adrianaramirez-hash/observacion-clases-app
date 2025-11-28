@@ -84,12 +84,9 @@ def pagina_encuesta_calidad():
     try:
         df = cargar_encuesta_calidad()
     except Exception as e:
-        st.error(
-            "No se pudieron cargar los datos de la Encuesta de calidad.\n\n"
-            "Revisa que la URL del Google Sheets sea correcta y que el service "
-            "account tenga acceso al archivo."
-        )
-        st.exception(e)
+        st.error("⚠️ Error técnico al cargar la encuesta de calidad:")
+        # mostramos el mensaje crudo del error para poder diagnosticar
+        st.code(str(e))
         return
 
     if df.empty:
