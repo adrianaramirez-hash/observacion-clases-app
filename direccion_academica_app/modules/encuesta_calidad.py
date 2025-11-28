@@ -14,12 +14,35 @@ SCOPES = [
 ]
 
 
+def _headers_unicos(headers_raw):
+    """
+    Recibe la fila de encabezados de la hoja y genera nombres únicos
+    por si hay duplicados (ej. '¿Por qué?', '¿Por qué?_2', ...).
+    """
+    resultado = []
+    vistos = {}
+
+    for h in headers_raw:
+        base = (h or "").strip()
+        if base == "":
+            base = "columna"
+
+        if base not in vistos:
+            vistos[base] = 1
+            resultado.append(base)
+        else:
+            vistos[base] += 1
+            resultado.append(f"{base}_{vistos[base]}")
+
+    return resultado
+
+
 @st.cache_data(ttl=60)
 def cargar_encuesta_calidad():
     """
     Carga las hojas de respuestas de la Encuesta de calidad
     (varios formularios en varias hojas) y las combina
-    en un solo DataFrame.
+    en un solo DataFrame, tolerando encabezados duplicados.
     """
 
     # 1) Credenciales desde secrets (igual que en observación de clases)
@@ -48,12 +71,22 @@ def cargar_encuesta_calidad():
     for nombre in nombres_hojas:
         try:
             ws = sh.worksheet(nombre)
-            datos = ws.get_all_records()
-            if datos:
-                df_tmp = pd.DataFrame(datos)
-                # opcional: saber de qué formulario viene cada respuesta
-                df_tmp["__origen_hoja__"] = nombre
-                dfs.append(df_tmp)
+            # Usamos get_all_values para controlar nosotros los encabezados
+            valores = ws.get_all_values()
+
+            # Si la hoja está vacía o sólo tiene encabezado, la saltamos
+            if not valores or len(valores) < 2:
+                continue
+
+            encabezados_raw = valores[0]
+            filas = valores[1:]
+
+            encabezados = _headers_unicos(encabezados_raw)
+
+            df_tmp = pd.DataFrame(filas, columns=encabezados)
+            df_tmp["__origen_hoja__"] = nombre
+            dfs.append(df_tmp)
+
         except gspread.WorksheetNotFound:
             # Si alguna hoja no existe, la ignoramos
             continue
@@ -85,7 +118,6 @@ def pagina_encuesta_calidad():
         df = cargar_encuesta_calidad()
     except Exception as e:
         st.error("⚠️ Error técnico al cargar la encuesta de calidad:")
-        # mostramos el mensaje crudo del error para poder diagnosticar
         st.code(str(e))
         return
 
@@ -154,9 +186,8 @@ def pagina_encuesta_calidad():
 
     st.info(
         "✅ El módulo de Encuesta de calidad ya está conectado a las tres hojas "
-        "de respuestas.\n\n"
+        "de respuestas (aunque haya preguntas repetidas como '¿Por qué?').\n\n"
         "En el siguiente paso podemos definir qué indicadores quieres ver "
         "(satisfacción general, por servicio, por nivel educativo, etc.) "
         "y construir las gráficas correspondientes."
     )
-
