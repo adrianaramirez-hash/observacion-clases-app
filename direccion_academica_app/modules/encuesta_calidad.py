@@ -32,7 +32,8 @@ def cargar_encuesta_calidad():
 
     # 2) URL DEL GOOGLE SHEETS DE ENCUESTA DE CALIDAD
     SPREADSHEET_URL = (
-        "https://docs.google.com/spreadsheets/d/1WAk0Jv42MIyn0iImsAT2YuCsC8-YphKnFxgJYQZKjqU/edit?gid=685471693#gid=685471693"
+        "https://docs.google.com/spreadsheets/d/1WAk0Jv42MIyn0iImsAT2YuCsC8-YphKnFxgJYQZKjqU
+"
     )
 
     sh = client.open_by_url(SPREADSHEET_URL)
