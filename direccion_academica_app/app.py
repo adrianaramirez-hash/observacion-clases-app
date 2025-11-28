@@ -18,19 +18,21 @@ MENU = [
 ]
 
 def main():
-    # ===== Encabezado: logo centrado + título =====
-    header = st.container()
-    with header:
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.image(
-                "direccion_academica_app/assets/udl_logo.png",
-                width=320,          # 👈 ajusta este número si quieres más chico/grande
-            )
-            st.markdown(
-                "<h2 style='text-align:center; margin-top:0;'>Dirección Académica</h2>",
-                unsafe_allow_html=True
-            )
+    # ===== Encabezado: logo justo encima del título, ambos centrados =====
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image(
+            "direccion_academica_app/assets/udl_logo.png",
+            width=320,  # puedes ajustar este tamaño si quieres
+        )
+        st.markdown(
+            """
+            <h2 style='text-align:center; margin-top:0.3rem; margin-bottom:0;'>
+                Dirección Académica
+            </h2>
+            """,
+            unsafe_allow_html=True
+        )
 
     st.markdown("---")
 
