@@ -455,4 +455,3 @@ def pagina_encuesta_calidad():
         st.info("No se encontraron comentarios abiertos relevantes.")
     else:
         st.dataframe(df_coment, use_container_width=True)
-
