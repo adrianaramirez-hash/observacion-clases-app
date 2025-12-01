@@ -187,15 +187,20 @@ def cargar_datos_encuesta():
 
     sh = client.open_by_url(SPREADSHEET_URL)
 
-    # Formularios (3 hojas)
+    # Formularios (3 hojas) — usamos get_all_values para permitir encabezados duplicados
     datos_formularios: dict[str, pd.DataFrame] = {}
     for key, cfg in FORM_CONFIG.items():
         ws = sh.worksheet(cfg["sheet_name"])
-        registros = ws.get_all_records()
-        df = pd.DataFrame(registros)
+        values = ws.get_all_values()
+        if not values:
+            df = pd.DataFrame()
+        else:
+            header = values[0]
+            rows = values[1:]
+            df = pd.DataFrame(rows, columns=header)
         datos_formularios[key] = df
 
-    # Hoja de aplicaciones (metadatos)
+    # Hoja de aplicaciones (metadatos) — aquí sí podemos usar get_all_records
     ws_apps = sh.worksheet("Aplicaciones")
     df_apps = pd.DataFrame(ws_apps.get_all_records())
 
