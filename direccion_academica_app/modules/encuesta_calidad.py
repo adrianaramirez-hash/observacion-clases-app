@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import gspread
 import json
-from datetime import datetime
 from google.oauth2.service_account import Credentials
 
 # --------------------------------------------------
@@ -14,12 +13,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
-# 👉 URL de tu archivo de ENCUESTA DE CALIDAD
 SPREADSHEET_URL = (
-    "https://docs.google.com/spreadsheets/d/1WAk0Jv42MIyn0iImsAT2YuCsC8-YphKnFxgJYQZKjqU/edit"
+    "https://docs.google.com/spreadsheets/d/1WAk0Jv42MIyn0iImsAT2YuCsC8-YphKnFxgJYQZKjqU"
 )
 
-# Mapeo: nombre amigable en la app  -> nombre real de la hoja
+# Nombre que usamos en la app -> nombre real de la hoja
 FORM_SHEETS = {
     "Servicios virtuales y mixtos": "servicios virtual y mixto virtual",
     "Servicios escolarizados y licenciaturas ejecutivas 2025": (
@@ -29,37 +27,76 @@ FORM_SHEETS = {
 }
 
 # --------------------------------------------------
-# CONFIGURACIÓN DE SECCIONES POR FORMULARIO
-# (Puedes editar estos diccionarios con los nombres reales de tus columnas)
+# DICCIONARIO DE SECCIONES POR RANGOS DE COLUMNAS
+# (Usa letras de Excel: A, B, ..., Z, AA, AB, ..., BA, BB, etc.)
 # --------------------------------------------------
-# Ejemplo de cómo llenarlo:
-# SECTION_CONFIG = {
-#   "Servicios virtuales y mixtos": {
-#        "Atención del docente": [
-#            "El docente responde oportunamente tus dudas",
-#            "El docente muestra interés por tu aprendizaje",
-#        ],
-#        "Plataforma y recursos": [
-#            "La plataforma es fácil de usar",
-#            "Los recursos compartidos son suficientes",
-#        ],
-#   },
-#   ...
-# }
-#
-# Por ahora lo dejamos vacío para no romper nada; la app
-# funciona solo con promedio por pregunta, y cuando tú añadas
-# columnas aquí aparecerán los promedios por sección.
 
-SECTION_CONFIG = {
-    "Servicios virtuales y mixtos": {},
-    "Servicios escolarizados y licenciaturas ejecutivas 2025": {},
-    "Preparatoria 2025": {},
+SECTION_RANGES = {
+    # Formulario 1
+    "servicios virtual y mixto virtual": [
+        ("Director/Coordinador", "C", "G"),
+        ("Aprendizaje", "H", "P"),
+        ("Materiales en la plataforma", "Q", "U"),
+        ("Evaluación del conocimiento", "V", "Y"),
+        ("Acceso a soporte académico", "Z", "AD"),
+        ("Acceso a soporte administrativo", "AE", "AI"),
+        ("Comunicación con compañeros", "AJ", "AQ"),
+        ("Recomendación", "AR", "AU"),
+        ("Plataforma SEAC", "AV", "AZ"),
+        ("Comunicación con la universidad", "BA", "BE"),
+    ],
+    # Formulario 2
+    "servicios escolarizados y licenciaturas ejecutivas 2025": [
+        ("Servicios", "I", "V"),
+        ("Servicios académicos", "W", "AH"),
+        ("Director/Coordinador", "AI", "AM"),
+        ("Instalaciones y equipo tecnológico", "AN", "AX"),
+        ("Ambiente escolar", "AY", "BE"),
+    ],
+    # Formulario 3
+    "Preparatoria 2025": [
+        ("Servicios", "H", "Q"),
+        ("Servicios académicos", "R", "AC"),
+        ("Directores y Coordinadores", "AD", "BB"),
+        ("Instalaciones y equipo tecnológico", "BC", "BN"),
+        ("Ambiente escolar", "BO", "BU"),
+    ],
 }
+
+# Palabras clave para detectar columnas de comentarios
+COMMENT_KEYWORDS = [
+    "por qué",
+    "porque",
+    "comentario",
+    "comentarios",
+    "sugerencia",
+    "sugerencias",
+    "observación",
+    "observaciones",
+    "otro",
+    "otros",
+    "especifique",
+    "explique",
+]
+
 
 # --------------------------------------------------
 # UTILIDADES
 # --------------------------------------------------
+
+
+def _col_letter_to_index(col_letter: str) -> int:
+    """
+    Convierte una letra de columna de Excel (A, B, ..., Z, AA, AB, ...)
+    a índice basado en 0 (A=0, B=1, ..., Z=25, AA=26, AB=27, ...).
+    """
+    col_letter = col_letter.strip().upper()
+    total = 0
+    for char in col_letter:
+        if not ("A" <= char <= "Z"):
+            continue
+        total = total * 26 + (ord(char) - ord("A") + 1)
+    return total - 1  # base 0
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -67,7 +104,7 @@ def _cargar_hoja(nombre_hoja: str) -> pd.DataFrame:
     """
     Carga una hoja específica del Google Sheets y devuelve un DataFrame.
 
-    - Hace único cada encabezado (por si hay '¿Por qué?' repetidos).
+    - Hace único cada encabezado (por si hay repetidos).
     - Convierte 'Marca temporal' a datetime si existe.
     """
     creds_dict = json.loads(st.secrets["gcp_service_account_json"])
@@ -131,7 +168,6 @@ def _detectar_col_servicio(df: pd.DataFrame) -> str:
     return df.columns[0]
 
 
-# Mapeo de respuestas tipo Likert a escala 1–5
 LIKERT_MAP = {
     "totalmente de acuerdo": 5,
     "muy de acuerdo": 5,
@@ -167,12 +203,9 @@ def _detectar_preguntas_likert(df: pd.DataFrame, columnas_a_omitir=None):
         serie = df[col].dropna()
         if serie.empty:
             continue
-
-        # Tomamos una muestra pequeña para decidir
         sample = serie.head(80).map(_texto_a_puntaje)
         if sample.notna().mean() >= 0.6:
             likert_cols.append(col)
-
     return likert_cols
 
 
@@ -195,33 +228,47 @@ def _agregar_indice_satisfaccion(df: pd.DataFrame, col_servicio: str):
     return df, likert_cols, likert_numeric
 
 
+def _obtener_columnas_seccion_por_rango(df: pd.DataFrame, nombre_hoja: str, likert_cols):
+    """
+    A partir de SECTION_RANGES y los nombres de columnas reales,
+    devuelve un dict: sección -> lista de columnas (solo Likert) para ese formulario.
+    """
+    secciones = {}
+    if nombre_hoja not in SECTION_RANGES:
+        return secciones
+
+    columnas = list(df.columns)
+
+    for nombre_seccion, col_ini, col_fin in SECTION_RANGES[nombre_hoja]:
+        idx_ini = _col_letter_to_index(col_ini)
+        idx_fin = _col_letter_to_index(col_fin)
+        if idx_ini < 0 or idx_fin < 0:
+            continue
+        # asegurar orden
+        if idx_ini > idx_fin:
+            idx_ini, idx_fin = idx_fin, idx_ini
+
+        cols_rango = []
+        for i, col_name in enumerate(columnas):
+            if idx_ini <= i <= idx_fin and col_name in likert_cols:
+                cols_rango.append(col_name)
+
+        if cols_rango:
+            secciones[nombre_seccion] = cols_rango
+
+    return secciones
+
+
 def _detectar_columnas_comentarios(df: pd.DataFrame):
     """
     Intenta identificar columnas de texto que sean comentarios abiertos.
     Se basa en el nombre de la columna.
     """
-    palabras_clave = [
-        "por qué",
-        "porque",
-        "comentario",
-        "comentarios",
-        "sugerencia",
-        "sugerencias",
-        "observación",
-        "observaciones",
-        "otro",
-        "otros",
-        "especifique",
-        "explique",
-        "por qué?",
-    ]
-
     candidatos = []
     for col in df.columns:
         lc = col.lower()
-        if any(p in lc for p in palabras_clave):
+        if any(p in lc for p in COMMENT_KEYWORDS):
             candidatos.append(col)
-
     return candidatos
 
 
@@ -252,19 +299,19 @@ def _top_comentarios(df: pd.DataFrame, comment_cols, top_n=10):
 
 
 def pagina_encuesta_calidad():
-    st.title("Encuesta de calidad")
+    st.title("Encuesta de calidad UDL")
 
     # ---------- Selección de formulario ----------
     st.sidebar.header("Filtros – Encuesta de calidad")
 
-    formulario = st.sidebar.selectbox(
+    nombre_formulario = st.sidebar.selectbox(
         "Selecciona el formulario",
         list(FORM_SHEETS.keys()),
     )
 
-    nombre_hoja = FORM_SHEETS[formulario]
+    nombre_hoja = FORM_SHEETS[nombre_formulario]
 
-    with st.spinner(f"Cargando datos de: {formulario}…"):
+    with st.spinner(f"Cargando datos de: {nombre_formulario}…"):
         df = _cargar_hoja(nombre_hoja)
 
     if df.empty:
@@ -275,17 +322,29 @@ def pagina_encuesta_calidad():
     col_servicio = _detectar_col_servicio(df)
     df, likert_cols, likert_numeric = _agregar_indice_satisfaccion(df, col_servicio)
 
+    # Secciones (según rangos de columnas y solo preguntas Likert)
+    secciones = _obtener_columnas_seccion_por_rango(df, nombre_hoja, likert_cols)
+
+    # Columnas de comentarios
+    comment_cols = _detectar_columnas_comentarios(df)
+
     # ---------- KPIs generales del formulario ----------
-    st.subheader(formulario)
+    st.subheader(nombre_formulario)
 
     total_respuestas = len(df)
 
+    # Periodo de aplicación (mes y año más frecuentes)
     if "Marca temporal" in df.columns and df["Marca temporal"].notna().any():
-        fecha_min = df["Marca temporal"].min()
-        fecha_max = df["Marca temporal"].max()
-        rango_fechas = f"{fecha_min.date()} – {fecha_max.date()}"
+        meses = df["Marca temporal"].dt.month.dropna()
+        años = df["Marca temporal"].dt.year.dropna()
+        if not meses.empty and not años.empty:
+            mes_mode = int(meses.mode()[0])
+            año_mode = int(años.mode()[0])
+            periodo = f"{mes_mode:02d}-{año_mode}"
+        else:
+            periodo = "No disponible"
     else:
-        rango_fechas = "No disponible"
+        periodo = "No disponible"
 
     if df["Índice de satisfacción"].notna().any():
         indice_global = df["Índice de satisfacción"].mean()
@@ -297,7 +356,7 @@ def pagina_encuesta_calidad():
     with col1:
         st.metric("Respuestas totales", total_respuestas)
     with col2:
-        st.metric("Rango de fechas", rango_fechas)
+        st.metric("Periodo de aplicación", periodo)
     with col3:
         st.metric("Índice global de satisfacción", indice_texto)
 
@@ -343,53 +402,26 @@ def pagina_encuesta_calidad():
     with colf2:
         st.metric("Índice de satisfacción (filtro)", indice_filtro_txt)
 
-    # --------------------------------------------------
-    # PROMEDIOS POR PREGUNTA
-    # --------------------------------------------------
-    if likert_cols:
-        st.markdown("### Promedio por pregunta (escala 1–5)")
-
-        promedio_preguntas = (
-            likert_numeric_filtrado[likert_cols]
-            .mean(axis=0)
-            .reset_index()
-            .rename(columns={"index": "Pregunta", 0: "Promedio 1–5"})
-        )
-        promedio_preguntas = promedio_preguntas.sort_values(
-            "Promedio 1–5", ascending=False
-        )
-
-        st.dataframe(promedio_preguntas, use_container_width=True)
-    else:
-        st.info(
-            "No se pudieron identificar preguntas tipo Likert para calcular promedios."
-        )
+    st.markdown("---")
 
     # --------------------------------------------------
-    # PROMEDIOS POR SECCIÓN (si están configuradas)
+    # PROMEDIO POR SECCIÓN
     # --------------------------------------------------
-    secciones_form = SECTION_CONFIG.get(formulario, {}) or {}
+    st.markdown("### Promedio por sección (escala 1–5)")
 
-    if secciones_form and likert_cols:
-        st.markdown("### Promedio por sección (escala 1–5)")
-
+    if secciones:
         resumen_secciones = []
-        for nombre_sec, cols_sec in secciones_form.items():
-            # Solo considerar columnas que existan y sean Likert
-            cols_validas = [c for c in cols_sec if c in likert_cols]
-            if not cols_validas:
-                continue
-
-            datos_sec = likert_numeric_filtrado[cols_validas]
-            prom_sec = datos_sec.mean(axis=1).mean()  # promedio general de la sección
-
-            resumen_secciones.append(
-                {
-                    "Sección": nombre_sec,
-                    "Preguntas incluidas": len(cols_validas),
-                    "Promedio 1–5": prom_sec,
-                }
-            )
+        for nombre_sec, cols_sec in secciones.items():
+            datos_sec = likert_numeric_filtrado[cols_sec]
+            if datos_sec.notna().any().any():
+                prom_sec = datos_sec.mean(axis=1).mean()
+                resumen_secciones.append(
+                    {
+                        "Sección": nombre_sec,
+                        "Preguntas incluidas": len(cols_sec),
+                        "Promedio 1–5": prom_sec,
+                    }
+                )
 
         if resumen_secciones:
             df_secciones = pd.DataFrame(resumen_secciones).sort_values(
@@ -398,108 +430,104 @@ def pagina_encuesta_calidad():
             st.dataframe(df_secciones, use_container_width=True)
         else:
             st.info(
-                "Hay configuración de secciones, pero ninguna coincide con las columnas Likert detectadas."
+                "No se pudieron calcular promedios por sección (verifica que las columnas del rango sean tipo Likert)."
             )
+    else:
+        st.info("No hay secciones configuradas para este formulario.")
+
+    # --------------------------------------------------
+    # PROMEDIO POR PREGUNTA
+    # --------------------------------------------------
+    st.markdown("### Promedio por pregunta (escala 1–5)")
+
+    if likert_cols:
+        # Opción para filtrar por sección
+        opciones_sec = ["(Todas las secciones)"] + list(secciones.keys())
+        sec_sel = st.selectbox(
+            "Filtrar preguntas por sección", opciones_sec
+        )
+
+        if sec_sel == "(Todas las secciones)":
+            cols_preg = likert_cols
+        else:
+            cols_preg = secciones.get(sec_sel, [])
+
+        if cols_preg:
+            promedio_preguntas = (
+                likert_numeric_filtrado[cols_preg]
+                .mean(axis=0)
+                .reset_index()
+                .rename(columns={"index": "Pregunta", 0: "Promedio 1–5"})
+            )
+            promedio_preguntas = promedio_preguntas.sort_values(
+                "Promedio 1–5", ascending=False
+            )
+
+            st.dataframe(promedio_preguntas, use_container_width=True)
+        else:
+            st.info("La sección seleccionada no tiene preguntas tipo Likert.")
+    else:
+        st.info(
+            "No se pudieron identificar preguntas tipo Likert para calcular promedios."
+        )
 
     st.markdown("---")
 
     # --------------------------------------------------
-    # DETALLE DE UNA PREGUNTA / SECCIÓN + COMENTARIOS
+    # DETALLE DE SECCIÓN + COMENTARIOS MÁS REPETIDOS
     # --------------------------------------------------
-    st.markdown("### Detalle de una pregunta o sección")
+    st.markdown("### Detalle de sección y comentarios más repetidos")
 
-    # Opciones para detalle
-    opciones_detalle = ["(Ninguna)"]
-    # Primero preguntas
-    opciones_detalle += [f"Pregunta: {c}" for c in likert_cols]
-    # Luego secciones (si las hay configuradas)
-    if secciones_form:
-        opciones_detalle += [f"Sección: {nombre}" for nombre in secciones_form.keys()]
+    if secciones:
+        sec_detalle = st.selectbox(
+            "Elige una sección para ver detalle y comentarios",
+            ["(Ninguna)"] + list(secciones.keys()),
+        )
+    else:
+        sec_detalle = "(Ninguna)"
 
-    seleccion_detalle = st.selectbox(
-        "Elige una pregunta o sección para ver indicadores y comentarios",
-        opciones_detalle,
-    )
+    if sec_detalle != "(Ninguna)":
+        cols_sec = secciones.get(sec_detalle, [])
+        if not cols_sec:
+            st.warning("No se encontraron columnas para esta sección.")
+        else:
+            st.markdown(f"**Sección seleccionada:** {sec_detalle}")
 
-    if seleccion_detalle != "(Ninguna)":
-        comment_cols = _detectar_columnas_comentarios(df_filtrado)
-
-        if seleccion_detalle.startswith("Pregunta: "):
-            col_preg = seleccion_detalle.replace("Pregunta: ", "", 1)
-
-            st.markdown(f"#### Detalle de la pregunta\n**{col_preg}**")
-
-            # Distribución de respuestas textuales
-            dist = (
-                df_filtrado[col_preg]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .value_counts()
+            # Promedio por pregunta dentro de la sección
+            datos_sec = likert_numeric_filtrado[cols_sec]
+            prom_por_preg = (
+                datos_sec.mean(axis=0)
                 .reset_index()
+                .rename(columns={"index": "Pregunta", 0: "Promedio 1–5"})
             )
-            dist.columns = ["Respuesta", "Frecuencia"]
-            st.markdown("**Distribución de respuestas:**")
-            st.dataframe(dist, use_container_width=True)
+            st.markdown("**Promedio por pregunta de la sección:**")
+            st.dataframe(prom_por_preg, use_container_width=True)
 
-            # Comentarios más repetidos (filtrando solo filas donde contestaron esa pregunta)
+            # Comentarios más repetidos para esta sección:
+            # tomamos filas donde haya al menos una respuesta en esa sección
             if comment_cols:
-                df_resp = df_filtrado[df_filtrado[col_preg].notna()]
+                mask_any = datos_sec.notna().any(axis=1)
+                df_resp = df_filtrado.loc[mask_any]
+
                 top_com = _top_comentarios(df_resp, comment_cols, top_n=10)
 
-                st.markdown("**Comentarios más repetidos (en el filtro y para esta pregunta):**")
+                st.markdown(
+                    "**Comentarios más repetidos (en el filtro y asociados a esta sección):**"
+                )
                 if top_com.empty:
                     st.write("No se encontraron comentarios repetidos.")
                 else:
                     st.dataframe(top_com, use_container_width=True)
             else:
-                st.info("No se detectaron columnas de comentarios en este formulario.")
-
-        elif seleccion_detalle.startswith("Sección: "):
-            nombre_sec = seleccion_detalle.replace("Sección: ", "", 1)
-            cols_sec = secciones_form.get(nombre_sec, [])
-            cols_validas = [c for c in cols_sec if c in likert_cols]
-
-            st.markdown(f"#### Detalle de la sección\n**{nombre_sec}**")
-
-            if not cols_validas:
-                st.warning(
-                    "Ninguna de las columnas configuradas para esta sección coincide con las preguntas Likert detectadas."
+                st.info(
+                    "No se detectaron columnas de comentarios en este formulario."
                 )
-            else:
-                datos_sec = likert_numeric_filtrado[cols_validas]
-                prom_por_preg = (
-                    datos_sec.mean(axis=0)
-                    .reset_index()
-                    .rename(columns={"index": "Pregunta", 0: "Promedio 1–5"})
-                )
-                st.markdown("**Promedio por pregunta de la sección:**")
-                st.dataframe(prom_por_preg, use_container_width=True)
-
-                # Comentarios más repetidos (filas donde haya al menos una respuesta en la sección)
-                if comment_cols:
-                    mask_any = datos_sec.notna().any(axis=1)
-                    df_resp = df_filtrado.loc[mask_any]
-                    top_com = _top_comentarios(df_resp, comment_cols, top_n=10)
-
-                    st.markdown(
-                        "**Comentarios más repetidos (en el filtro y para esta sección):**"
-                    )
-                    if top_com.empty:
-                        st.write("No se encontraron comentarios repetidos.")
-                    else:
-                        st.dataframe(top_com, use_container_width=True)
-                else:
-                    st.info(
-                        "No se detectaron columnas de comentarios para este formulario."
-                    )
 
     st.markdown("---")
 
     # ---------- Tabla detalle de respuestas ----------
     st.markdown("### Respuestas de la encuesta (detalle)")
 
-    # Mostrar solo algunas columnas clave primero, si existen
     columnas_prioritarias = []
     for c in ["Marca temporal", col_servicio, "Índice de satisfacción"]:
         if c in df_filtrado.columns:
