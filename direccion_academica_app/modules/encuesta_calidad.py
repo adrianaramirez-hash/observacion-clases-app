@@ -1,431 +1,457 @@
-# modules/encuesta_calidad.py
-
-import streamlit as st
-import pandas as pd
-import gspread
 import json
-from google.oauth2.service_account import Credentials
-import altair as alt
+from collections import Counter, OrderedDict
 
-# --------------------------------------------------
-# CONFIGURACIÓN DE GOOGLE SHEETS
-# --------------------------------------------------
+import numpy as np
+import pandas as pd
+import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
+
+
+# -------------------------------------------------------------------
+# CONFIGURACIÓN BÁSICA
+# -------------------------------------------------------------------
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
-# URL DEL CONCENTRADO DE CALIDAD 2025
+# URL del archivo CONCENTRADO_CALIDAD_2025 (el que tiene las 3 hojas + Aplicaciones)
 SPREADSHEET_URL = (
-    "https://docs.google.com/spreadsheets/d/"
-    "1WAk0Jv42MIyn0iImsAT2YuCsC8-YphKnFxgJYQZKjqU/edit"
+    "https://docs.google.com/spreadsheets/d/1WAk0Jv42MIyn0iImsAT2YuCsC8-YphKnFxgJYQZKjqU"
 )
 
-# --------------------------------------------------
-# UTILIDADES
-# --------------------------------------------------
+# Helper: convertir letras de columna de Excel a índice 0-based
+def _col_letras_a_indice(letras: str) -> int:
+    letras = letras.strip().upper()
+    idx = 0
+    for ch in letras:
+        idx = idx * 26 + (ord(ch) - ord("A") + 1)
+    return idx - 1
 
 
-def _excel_col_to_idx(col_letter: str) -> int:
-    """
-    Convierte una letra de columna de Excel (A, B, ..., AA, AB, etc.)
-    a índice 0-based para usar con df.columns.
-    """
-    col_letter = col_letter.strip().upper()
-    value = 0
-    for ch in col_letter:
-        value = value * 26 + (ord(ch) - ord("A") + 1)
-    # De 1-based (Excel) a 0-based (lista de columnas)
-    return value - 1
-
-
-def _detectar_columnas_likert(df: pd.DataFrame) -> list:
-    """
-    Detecta columnas que parecen ser escala 1–5.
-
-    - Intenta convertir a numérico (con errors='coerce').
-    - Debe haber al menos 1 valor válido.
-    - Los valores válidos deben estar entre 1 y 5.
-
-    Si alguna columna causa un TypeError u otro problema raro,
-    simplemente se ignora.
-    """
-    likert_cols = []
-    for col in df.columns:
-        try:
-            serie = pd.to_numeric(df[col], errors="coerce")
-        except Exception:
-            # Si por algún motivo no se puede convertir, saltamos la columna
-            continue
-
-        if serie.notna().sum() == 0:
-            continue
-
-        vals = serie.dropna()
-        # Si TODOS los valores válidos están entre 1 y 5, la marcamos
-        if vals.between(1, 5).all():
-            likert_cols.append(col)
-
-    return likert_cols
-
-
-def _promedio_global_likert(df: pd.DataFrame) -> float | None:
-    likert_cols = _detectar_columnas_likert(df)
-    if not likert_cols:
-        return None
-    matriz = df[likert_cols].apply(pd.to_numeric, errors="coerce")
-    return float(matriz.stack().mean())
-
-
-def _promedio_seccion(df: pd.DataFrame, columnas: list[str]) -> float | None:
-    if not columnas:
-        return None
-    matriz = df[columnas].apply(pd.to_numeric, errors="coerce")
-    if matriz.notna().sum().sum() == 0:
-        return None
-    return float(matriz.stack().mean())
-
-
-def _top_respuestas_texto(serie: pd.Series, top_n: int = 10) -> pd.DataFrame:
-    serie = serie.astype(str).str.strip()
-    serie = serie[serie != ""]
-    if serie.empty:
-        return pd.DataFrame(columns=["Respuesta", "Frecuencia"])
-    conteo = serie.value_counts().head(top_n)
-    return (
-        conteo.reset_index()
-        .rename(columns={"index": "Respuesta", serie.name: "Frecuencia"})
-    )
-
-
-# --------------------------------------------------
-# CONFIG DEL FORMULARIO: NOMBRES Y RANGOS DE SECCIONES
-# --------------------------------------------------
-
+# Config por formulario
+# OJO: si cambias nombres de hojas en el archivo de Google Sheets, actualiza "sheet"
 FORM_CONFIG = {
-    "virtual": {
-        "sheet_name": "servicios virtual y mixto virtual",
-        "display": "Servicios virtuales y mixtos",
-        "sections": [
-            {"name": "Director / Coordinador", "start": "c", "end": "g"},
-            {"name": "Aprendizaje", "start": "h", "end": "p"},
-            {
-                "name": "Materiales en la plataforma",
-                "start": "q",
-                "end": "u",
-            },
-            {
-                "name": "Evaluación del conocimiento",
-                "start": "v",
-                "end": "y",
-            },
-            {
-                "name": "Acceso a soporte académico",
-                "start": "z",
-                "end": "ad",
-            },
-            {
-                "name": "Acceso a soporte administrativo",
-                "start": "ae",
-                "end": "ai",
-            },
-            {
-                "name": "Comunicación con compañeros",
-                "start": "aj",
-                "end": "aq",
-            },
-            {"name": "Recomendación", "start": "ar", "end": "au"},
-            {"name": "Plataforma SEAC", "start": "av", "end": "az"},
-            {
-                "name": "Comunicación con la universidad",
-                "start": "ba",
-                "end": "be",
-            },
-        ],
+    "Servicios virtuales y mixtos": {
+        "sheet": "servicios virtual y mixto virtual",
+        "aplicaciones_formulario": "servicios virtual y mixto virtual",
+        # si quieres forzar una columna de servicio, pon aquí el nombre exacto
+        "col_servicio": None,
+        "col_fecha": None,  # se detecta por nombre si es None
+        # secciones (nombre, col_inicio, col_fin) usando letras de Excel
+        "secciones": OrderedDict(
+            [
+                ("Director / Coordinador", ("C", "G")),
+                ("Aprendizaje", ("H", "P")),
+                ("Materiales en la plataforma", ("Q", "U")),
+                ("Evaluación del conocimiento", ("V", "Y")),
+                ("Acceso a soporte académico", ("Z", "AD")),
+                ("Acceso a soporte administrativo", ("AE", "AI")),
+                ("Comunicación con compañeros", ("AJ", "AQ")),
+                ("Recomendación", ("AR", "AU")),
+                ("Plataforma SEAC", ("AV", "AZ")),
+                ("Comunicación con la universidad", ("BA", "BE")),
+            ]
+        ),
+        # columnas de comentarios (si conoces los nombres exactos, puedes listarlos aquí)
+        "comentarios_cols": [],
     },
-    "escolarizados": {
-        "sheet_name": "servicios escolarizados y licenciaturas ejecutivas 2025",
-        "display": "Servicios escolarizados y licenciaturas ejecutivas",
-        "sections": [
-            {"name": "Servicios", "start": "i", "end": "v"},
-            {"name": "Servicios académicos", "start": "w", "end": "ah"},
-            {
-                "name": "Director / Coordinador",
-                "start": "ai",
-                "end": "am",
-            },
-            {
-                "name": "Instalaciones y equipo tecnológico",
-                "start": "an",
-                "end": "ax",
-            },
-            {"name": "Ambiente escolar", "start": "ay", "end": "be"},
-        ],
+    "Servicios escolarizados y licenciaturas ejecutivas 2025": {
+        "sheet": "servicios escolarizados y licenciaturas ejecutivas 2025",
+        "aplicaciones_formulario": "servicios escolarizados y licenciaturas ejecutivas 2025",
+        "col_servicio": None,
+        "col_fecha": None,
+        "secciones": OrderedDict(
+            [
+                ("Servicios administrativos / operativos", ("I", "V")),
+                ("Servicios académicos", ("W", "AH")),
+                ("Director / Coordinador", ("AI", "AM")),
+                ("Instalaciones y equipo tecnológico", ("AN", "AX")),
+                ("Ambiente escolar", ("AY", "BE")),
+            ]
+        ),
+        "comentarios_cols": [],
     },
-    "prepa": {
-        "sheet_name": "Preparatoria 2025",
-        "display": "Preparatoria UDL",
-        "sections": [
-            {"name": "Servicios", "start": "h", "end": "q"},
-            {"name": "Servicios académicos", "start": "r", "end": "ac"},
-            {
-                "name": "Directores y coordinadores",
-                "start": "ad",
-                "end": "bb",
-            },
-            {
-                "name": "Instalaciones y equipo tecnológico",
-                "start": "bc",
-                "end": "bn",
-            },
-            {"name": "Ambiente escolar", "start": "bo", "end": "bu"},
-        ],
+    "Preparatoria 2025": {
+        "sheet": "Preparatoria 2025",
+        "aplicaciones_formulario": "Preparatoria 2025",
+        "col_servicio": None,
+        "col_fecha": None,
+        "secciones": OrderedDict(
+            [
+                ("Servicios administrativos / apoyo", ("H", "Q")),
+                ("Servicios académicos", ("R", "AC")),
+                ("Directores y coordinadores", ("AD", "BB")),
+                ("Instalaciones y equipo tecnológico", ("BC", "BN")),
+                ("Ambiente escolar", ("BO", "BU")),
+            ]
+        ),
+        "comentarios_cols": [],
     },
 }
 
 
-# --------------------------------------------------
+# -------------------------------------------------------------------
 # CARGA DE DATOS
-# --------------------------------------------------
+# -------------------------------------------------------------------
 
 
 @st.cache_data(ttl=300)
-def cargar_datos_encuesta():
-    # Credenciales desde st.secrets
+def _cargar_datos_calidad():
+    """Carga TODAS las hojas de la encuesta de calidad + hoja Aplicaciones."""
     creds_dict = json.loads(st.secrets["gcp_service_account_json"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
 
     sh = client.open_by_url(SPREADSHEET_URL)
 
-    # Formularios (3 hojas) — usamos get_all_values para permitir encabezados duplicados
-    datos_formularios: dict[str, pd.DataFrame] = {}
-    for key, cfg in FORM_CONFIG.items():
-        ws = sh.worksheet(cfg["sheet_name"])
-        values = ws.get_all_values()
-        if not values:
-            df = pd.DataFrame()
-        else:
-            header = values[0]
-            rows = values[1:]
-            df = pd.DataFrame(rows, columns=header)
-        datos_formularios[key] = df
+    datos_formularios = {}
+    for nombre_vista, conf in FORM_CONFIG.items():
+        ws = sh.worksheet(conf["sheet"])
+        df = pd.DataFrame(ws.get_all_records())
+        datos_formularios[nombre_vista] = df
 
-    # Hoja de aplicaciones (metadatos)
-    ws_apps = sh.worksheet("Aplicaciones")
-    df_apps = pd.DataFrame(ws_apps.get_all_records())
+    # Hoja de aplicaciones (una fila por formulario / aplicación anual)
+    ws_app = sh.worksheet("Aplicaciones")
+    df_app = pd.DataFrame(ws_app.get_all_records())
 
-    return datos_formularios, df_apps
+    return datos_formularios, df_app
 
 
-# --------------------------------------------------
-# UI PRINCIPAL
-# --------------------------------------------------
+# -------------------------------------------------------------------
+# MAPEO DE RESPUESTAS A ESCALA 1–5
+# -------------------------------------------------------------------
+
+
+def _mapear_a_likert(valor):
+    """Convierte respuestas de texto a escala 1–5.
+
+    Devuelve np.nan cuando no puede mapear.
+    """
+    if pd.isna(valor):
+        return np.nan
+
+    s = str(valor).strip()
+    if not s:
+        return np.nan
+
+    # Intento directo numérico
+    try:
+        v = float(s.replace(",", "."))
+        # si está en 1–5, lo usamos directo
+        if 1 <= v <= 5:
+            return v
+        # si está en 0–10, lo re-escalamos a 1–5
+        if 0 <= v <= 10:
+            return (v / 10.0) * 4 + 1
+    except Exception:
+        pass
+
+    s_low = s.lower()
+
+    # Mapas típicos de satisfacción / acuerdo
+    # Orden importante: de más específico a más general
+    patrones = [
+        (["totalmente en desacuerdo", "muy en desacuerdo"], 1),
+        (["en desacuerdo"], 2),
+        (["ni de acuerdo", "ni satisfecho", "neutral", "indiferente"], 3),
+        (["de acuerdo"], 4),
+        (["totalmente de acuerdo", "muy de acuerdo"], 5),
+        (["muy insatisfecho"], 1),
+        (["insatisfecho"], 2),
+        (["poco satisfecho"], 3),
+        (["satisfecho"], 4),
+        (["muy satisfecho"], 5),
+        (["muy malo"], 1),
+        (["malo"], 2),
+        (["regular"], 3),
+        (["bueno"], 4),
+        (["muy bueno", "excelente"], 5),
+        (["nunca"], 1),
+        (["casi nunca"], 2),
+        (["a veces"], 3),
+        (["casi siempre"], 4),
+        (["siempre"], 5),
+    ]
+
+    for palabras, puntaje in patrones:
+        if any(p in s_low for p in palabras):
+            return float(puntaje)
+
+    # Sí / No (solo si no hay nada mejor)
+    if s_low in ["sí", "si", "yes"]:
+        return 5.0
+    if s_low in ["no"]:
+        return 1.0
+
+    return np.nan
+
+
+def _serie_likert(columna):
+    return columna.apply(_mapear_a_likert)
+
+
+# -------------------------------------------------------------------
+# UTILIDADES DE CONFIG / DETECCIÓN
+# -------------------------------------------------------------------
+
+
+def _detectar_col_fecha(df: pd.DataFrame, conf: dict) -> str | None:
+    if conf.get("col_fecha") and conf["col_fecha"] in df.columns:
+        return conf["col_fecha"]
+    for col in df.columns:
+        c = col.lower()
+        if "marca temporal" in c or ("fecha" in c and "nacimiento" not in c):
+            return col
+    return None
+
+
+def _detectar_col_servicio(df: pd.DataFrame, conf: dict) -> str | None:
+    if conf.get("col_servicio") and conf["col_servicio"] in df.columns:
+        return conf["col_servicio"]
+    for col in df.columns:
+        c = col.lower()
+        if any(p in c for p in ["programa", "carrera", "servicio", "nivel educativo"]):
+            return col
+    return None
+
+
+def _columnas_de_seccion(df: pd.DataFrame, conf: dict, nombre_seccion: str):
+    secciones = conf["secciones"]
+    if nombre_seccion not in secciones:
+        return []
+    letra_ini, letra_fin = secciones[nombre_seccion]
+    i_ini = _col_letras_a_indice(letra_ini)
+    i_fin = _col_letras_a_indice(letra_fin)
+    cols = df.columns.tolist()
+    # ajuste por si los índices se salen
+    i_ini = max(0, min(i_ini, len(cols) - 1))
+    i_fin = max(0, min(i_fin, len(cols) - 1))
+    if i_fin < i_ini:
+        i_ini, i_fin = i_fin, i_ini
+    return cols[i_ini : i_fin + 1]
+
+
+def _todas_columnas_likert(df: pd.DataFrame, conf: dict):
+    """Todas las columnas que participan en las secciones."""
+    usadas = []
+    for nombre in conf["secciones"].keys():
+        usadas.extend(_columnas_de_seccion(df, conf, nombre))
+    # quitar duplicados manteniendo orden
+    vistos = set()
+    resultado = []
+    for c in usadas:
+        if c not in vistos and c in df.columns:
+            vistos.add(c)
+            resultado.append(c)
+    return resultado
+
+
+def _detectar_columnas_comentarios(df: pd.DataFrame, conf: dict):
+    if conf.get("comentarios_cols"):
+        return [c for c in conf["comentarios_cols"] if c in df.columns]
+    candidatos = []
+    for col in df.columns:
+        c = col.lower()
+        if any(p in c for p in ["comentario", "sugerencia", "por qué", "por que", "motivo", "explique"]):
+            candidatos.append(col)
+    return candidatos
+
+
+# -------------------------------------------------------------------
+# CÁLCULOS DE ÍNDICES Y TABLAS
+# -------------------------------------------------------------------
+
+
+def _indice_global_likert(df: pd.DataFrame, conf: dict) -> float | None:
+    cols = _todas_columnas_likert(df, conf)
+    valores = []
+    for c in cols:
+        serie = _serie_likert(df[c])
+        valores.extend(serie.dropna().tolist())
+    if not valores:
+        return None
+    return float(np.mean(valores))
+
+
+def _tabla_promedio_secciones(df: pd.DataFrame, conf: dict) -> pd.DataFrame:
+    registros = []
+    for nombre_seccion in conf["secciones"].keys():
+        cols = _columnas_de_seccion(df, conf, nombre_seccion)
+        valores = []
+        for c in cols:
+            if c in df.columns:
+                serie = _serie_likert(df[c])
+                valores.extend(serie.dropna().tolist())
+        prom = float(np.mean(valores)) if valores else None
+        registros.append(
+            {"Sección": nombre_seccion, "Promedio 1–5": round(prom, 2) if prom is not None else None}
+        )
+    return pd.DataFrame(registros)
+
+
+def _tabla_promedio_preguntas(df: pd.DataFrame, conf: dict) -> pd.DataFrame:
+    filas = []
+    for nombre_seccion in conf["secciones"].keys():
+        cols = _columnas_de_seccion(df, conf, nombre_seccion)
+        for c in cols:
+            if c not in df.columns:
+                continue
+            serie = _serie_likert(df[c])
+            valores = serie.dropna().tolist()
+            prom = float(np.mean(valores)) if valores else None
+            filas.append(
+                {
+                    "Sección": nombre_seccion,
+                    "Pregunta": c,
+                    "Promedio 1–5": round(prom, 2) if prom is not None else None,
+                }
+            )
+    if not filas:
+        return pd.DataFrame(columns=["Sección", "Pregunta", "Promedio 1–5"])
+    return pd.DataFrame(filas)
+
+
+def _comentarios_mas_frecuentes(df: pd.DataFrame, conf: dict, max_items: int = 15):
+    cols = _detectar_columnas_comentarios(df, conf)
+    if not cols:
+        return pd.DataFrame(columns=["Comentario", "Frecuencia"])
+
+    contador = Counter()
+    for c in cols:
+        serie = df[c].dropna().astype(str)
+        for s in serie:
+            text = s.strip()
+            if not text:
+                continue
+            low = text.lower()
+            # filtramos respuestas poco útiles
+            if low in ["si", "sí", "no", "na", "n/a", "ninguno", "ninguna"]:
+                continue
+            if len(low) < 4:
+                continue
+            contador[text] += 1
+
+    if not contador:
+        return pd.DataFrame(columns=["Comentario", "Frecuencia"])
+
+    items = contador.most_common(max_items)
+    return pd.DataFrame(items, columns=["Comentario", "Frecuencia"])
+
+
+def _info_aplicacion(df_app: pd.DataFrame, conf: dict):
+    """Devuelve (aplicacion_str, rango_fechas_str) o valores vacíos."""
+    formulario_id = conf.get("aplicaciones_formulario")
+    if not formulario_id or df_app.empty or "formulario" not in df_app.columns:
+        return "", ""
+    fila = df_app[df_app["formulario"] == formulario_id]
+    if fila.empty:
+        return "", ""
+    fila = fila.iloc[0]
+    aplicacion = str(fila.get("aplicacion_id", ""))
+    desc = str(fila.get("descripcion", "")).strip()
+    if desc:
+        aplicacion_str = f"{aplicacion} – {desc}"
+    else:
+        aplicacion_str = aplicacion
+
+    fi = fila.get("fecha_inicio", "")
+    ff = fila.get("fecha_fin", "")
+    if fi and ff:
+        rango = f"{fi} – {ff}"
+    else:
+        rango = ""
+    return aplicacion_str, rango
+
+
+# -------------------------------------------------------------------
+# PÁGINA PRINCIPAL
+# -------------------------------------------------------------------
 
 
 def pagina_encuesta_calidad():
-    st.title("Encuesta de calidad")
+    st.header("Encuesta de calidad")
 
-    try:
-        datos_formularios, df_apps = cargar_datos_encuesta()
-    except Exception as e:
-        st.error("No se pudieron cargar los datos de la Encuesta de calidad.")
-        st.exception(e)
+    datos_formularios, df_aplicaciones = _cargar_datos_calidad()
+
+    # Selector de formulario
+    nombres_form = list(FORM_CONFIG.keys())
+    formulario_sel = st.selectbox("Selecciona un formulario", nombres_form)
+
+    df_form = datos_formularios.get(formulario_sel, pd.DataFrame())
+    conf = FORM_CONFIG[formulario_sel]
+
+    if df_form.empty:
+        st.warning("No se encontraron datos para este formulario.")
         return
 
-    # -----------------------------
-    # Selección de formulario
-    # -----------------------------
-    opciones = {
-        "virtual": FORM_CONFIG["virtual"]["display"],
-        "escolarizados": FORM_CONFIG["escolarizados"]["display"],
-        "prepa": FORM_CONFIG["prepa"]["display"],
-    }
+    # Detectar columnas clave
+    col_fecha = _detectar_col_fecha(df_form, conf)
+    col_servicio = _detectar_col_servicio(df_form, conf)
 
-    key_form = st.selectbox(
-        "Selecciona un formulario",
-        options=list(opciones.keys()),
-        format_func=lambda k: opciones[k],
-    )
+    df_trabajo = df_form.copy()
 
-    cfg = FORM_CONFIG[key_form]
-    df = datos_formularios[key_form]
-
-    if df.empty:
-        st.warning("No hay respuestas para este formulario.")
-        return
-
-    # -----------------------------
-    # Metadatos desde hoja Aplicaciones
-    # -----------------------------
-    meta = df_apps[df_apps["formulario"] == cfg["sheet_name"]]
-
-    aplicacion_texto = "No definido"
-    rango_fechas_texto = "No definido"
-
-    if not meta.empty:
-        fila = meta.iloc[0]
-        apl_id = str(fila.get("aplicacion_id", "")).strip()
-        desc = str(fila.get("descripcion", "")).strip()
-        fecha_ini = str(fila.get("fecha_inicio", "")).strip()
-        fecha_fin = str(fila.get("fecha_fin", "")).strip()
-
-        if apl_id or desc:
-            aplicacion_texto = f"{apl_id} – {desc}".strip(" –")
-        if fecha_ini or fecha_fin:
-            rango_fechas_texto = f"{fecha_ini} – {fecha_fin}".strip(" –")
-
-    # -----------------------------
-    # KPI generales
-    # -----------------------------
-    respuestas_totales = len(df)
-    indice_global = _promedio_global_likert(df)
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Respuestas totales", respuestas_totales)
-
-    with col2:
-        st.metric("Aplicación", aplicacion_texto)
-
-    with col3:
-        st.metric("Rango de fechas", rango_fechas_texto)
-
-    with col4:
-        if indice_global is not None:
-            st.metric("Índice global de satisfacción", f"{indice_global:.2f} / 5")
-        else:
-            st.metric("Índice global de satisfacción", "Sin datos")
-
-    st.markdown("---")
-
-    # --------------------------------------------------
-    # PROMEDIO POR SECCIÓN
-    # --------------------------------------------------
-    st.subheader("Promedio por sección (escala 1–5)")
-
-    secciones_cfg = cfg["sections"]
-    filas_secciones = []
-
-    # Mapeamos letras de columnas a nombres reales
-    for sec in secciones_cfg:
-        i_ini = _excel_col_to_idx(sec["start"])
-        i_fin = _excel_col_to_idx(sec["end"])
-        columnas = list(df.columns[i_ini : i_fin + 1])
-
-        prom = _promedio_seccion(df, columnas)
-        filas_secciones.append(
-            {
-                "Sección": sec["name"],
-                "Columnas": f"{sec['start'].upper()}–{sec['end'].upper()}",
-                "Promedio 1–5": round(prom, 2) if prom is not None else None,
-            }
+    # Filtro por servicio / carrera
+    if col_servicio and col_servicio in df_trabajo.columns:
+        servicios = (
+            df_trabajo[col_servicio]
+            .dropna()
+            .astype(str)
+            .replace("", np.nan)
+            .dropna()
+            .unique()
+            .tolist()
         )
-
-    df_secciones = pd.DataFrame(filas_secciones)
-    st.dataframe(df_secciones[["Sección", "Promedio 1–5"]], use_container_width=True)
-
-    st.markdown("---")
-
-    # --------------------------------------------------
-    # PROMEDIO POR PREGUNTA DENTRO DE UNA SECCIÓN
-    # --------------------------------------------------
-    st.subheader("Promedio por pregunta (escala 1–5)")
-
-    nombres_secciones = [s["name"] for s in secciones_cfg]
-    seccion_sel = st.selectbox(
-        "Elige una sección para ver sus preguntas",
-        options=nombres_secciones,
-    )
-
-    cfg_sec = next(s for s in secciones_cfg if s["name"] == seccion_sel)
-    idx_ini = _excel_col_to_idx(cfg_sec["start"])
-    idx_fin = _excel_col_to_idx(cfg_sec["end"])
-    cols_sec = list(df.columns[idx_ini : idx_fin + 1])
-
-    filas_pregs = []
-    for col in cols_sec:
-        serie = pd.to_numeric(df[col], errors="coerce")
-        if serie.notna().sum() == 0:
-            filas_pregs.append({"Pregunta": col, "Promedio 1–5": None})
-        else:
-            vals = serie.dropna()
-            if vals.between(1, 5).all():
-                filas_pregs.append(
-                    {"Pregunta": col, "Promedio 1–5": round(float(vals.mean()), 2)}
-                )
-            else:
-                filas_pregs.append({"Pregunta": col, "Promedio 1–5": None})
-
-    df_pregs = pd.DataFrame(filas_pregs)
-    st.dataframe(df_pregs, use_container_width=True)
-
-    st.markdown("---")
-
-    # --------------------------------------------------
-    # DETALLE DE UNA PREGUNTA
-    # --------------------------------------------------
-    st.subheader("Detalle de una pregunta")
-
-    if not cols_sec:
-        st.info("La sección seleccionada no tiene columnas asociadas.")
-        return
-
-    preg_sel = st.selectbox(
-        "Selecciona una pregunta de la sección",
-        options=cols_sec,
-    )
-
-    serie_bruta = df[preg_sel]
-
-    col_izq, col_der = st.columns(2)
-
-    # Intentamos tratarla como numérica 1–5
-    serie_num = pd.to_numeric(serie_bruta, errors="coerce")
-    if serie_num.notna().sum() > 0 and serie_num.dropna().between(1, 5).all():
-        with col_izq:
-            st.write(f"**Promedio (1–5):** {serie_num.mean():.2f}")
-            st.write(f"**Respuestas válidas:** {serie_num.notna().sum()}")
-
-        dist = (
-            serie_num.value_counts()
-            .sort_index()
-            .reset_index()
-            .rename(columns={"index": "Valor", preg_sel: "Frecuencia"})
+        servicios = sorted(servicios)
+        opcion_servicio = st.selectbox(
+            "Filtrar por programa / servicio",
+            ["(Todos)"] + servicios,
         )
-
-        chart = (
-            alt.Chart(dist)
-            .mark_bar()
-            .encode(
-                x=alt.X("Valor:O", title="Respuesta (1–5)"),
-                y=alt.Y("Frecuencia:Q"),
-                tooltip=["Valor", "Frecuencia"],
-            )
-            .properties(height=250)
-        )
-
-        with col_der:
-            st.altair_chart(chart, use_container_width=True)
-
+        if opcion_servicio != "(Todos)":
+            df_trabajo = df_trabajo[df_trabajo[col_servicio].astype(str) == opcion_servicio]
     else:
-        st.info("Esta pregunta no es numérica 1–5; se muestran respuestas más frecuentes.")
-        top_txt = _top_respuestas_texto(serie_bruta, top_n=10)
-        if top_txt.empty:
-            st.write("Sin comentarios registrados.")
-        else:
-            st.write("Respuestas más frecuentes:")
-            st.dataframe(top_txt, use_container_width=True)
+        opcion_servicio = "(Todos)"
 
-    if serie_bruta.dtype == "object":
-        st.markdown("### Comentarios (muestra)")
-        ejemplos = (
-            serie_bruta.astype(str).str.strip().replace("", pd.NA).dropna().head(50)
-        )
-        if ejemplos.empty:
-            st.write("Sin comentarios para esta pregunta.")
+    # KPIs
+    total_resp = len(df_trabajo)
+
+    aplicacion_str, rango_fechas_str = _info_aplicacion(df_aplicaciones, conf)
+    indice_global = _indice_global_likert(df_trabajo, conf)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Respuestas totales", total_resp)
+    with col2:
+        st.metric("Aplicación", aplicacion_str if aplicacion_str else "Sin registro")
+    with col3:
+        if indice_global is None or np.isnan(indice_global):
+            st.metric("Índice global de satisfacción", "Sin datos")
         else:
-            for i, txt in enumerate(ejemplos, start=1):
-                st.write(f"{i}. {txt}")
+            st.metric("Índice global de satisfacción", f"{indice_global:.2f} / 5")
+
+    st.markdown("---")
+
+    # Promedio por sección
+    st.subheader("Promedio por sección (escala 1–5)")
+    tabla_secciones = _tabla_promedio_secciones(df_trabajo, conf)
+    st.dataframe(tabla_secciones, use_container_width=True)
+
+    # Promedio por pregunta
+    st.subheader("Promedio por pregunta (escala 1–5)")
+    tabla_preguntas = _tabla_promedio_preguntas(df_trabajo, conf)
+    if not tabla_preguntas.empty:
+        st.dataframe(tabla_preguntas, use_container_width=True)
+    else:
+        st.info("No se pudieron calcular promedios por pregunta (no hay datos mapeables a 1–5).")
+
+    st.markdown("---")
+
+    # Comentarios más frecuentes
+    st.subheader("Comentarios más frecuentes (según filtros actuales)")
+    df_coment = _comentarios_mas_frecuentes(df_trabajo, conf)
+    if df_coment.empty:
+        st.info("No se encontraron comentarios abiertos relevantes.")
+    else:
+        st.dataframe(df_coment, use_container_width=True)
