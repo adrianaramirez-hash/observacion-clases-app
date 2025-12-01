@@ -43,18 +43,30 @@ def _excel_col_to_idx(col_letter: str) -> int:
 def _detectar_columnas_likert(df: pd.DataFrame) -> list:
     """
     Detecta columnas que parecen ser escala 1–5.
-    - Convierte a numérico.
+
+    - Intenta convertir a numérico (con errors='coerce').
     - Debe haber al menos 1 valor válido.
     - Los valores válidos deben estar entre 1 y 5.
+
+    Si alguna columna causa un TypeError u otro problema raro,
+    simplemente se ignora.
     """
     likert_cols = []
     for col in df.columns:
-        serie = pd.to_numeric(df[col], errors="coerce")
+        try:
+            serie = pd.to_numeric(df[col], errors="coerce")
+        except Exception:
+            # Si por algún motivo no se puede convertir, saltamos la columna
+            continue
+
         if serie.notna().sum() == 0:
             continue
+
         vals = serie.dropna()
+        # Si TODOS los valores válidos están entre 1 y 5, la marcamos
         if vals.between(1, 5).all():
             likert_cols.append(col)
+
     return likert_cols
 
 
@@ -200,7 +212,7 @@ def cargar_datos_encuesta():
             df = pd.DataFrame(rows, columns=header)
         datos_formularios[key] = df
 
-    # Hoja de aplicaciones (metadatos) — aquí sí podemos usar get_all_records
+    # Hoja de aplicaciones (metadatos)
     ws_apps = sh.worksheet("Aplicaciones")
     df_apps = pd.DataFrame(ws_apps.get_all_records())
 
@@ -337,7 +349,6 @@ def pagina_encuesta_calidad():
     for col in cols_sec:
         serie = pd.to_numeric(df[col], errors="coerce")
         if serie.notna().sum() == 0:
-            # Si no hay números, la tratamos como pregunta abierta (sin promedio)
             filas_pregs.append({"Pregunta": col, "Promedio 1–5": None})
         else:
             vals = serie.dropna()
@@ -378,7 +389,6 @@ def pagina_encuesta_calidad():
             st.write(f"**Promedio (1–5):** {serie_num.mean():.2f}")
             st.write(f"**Respuestas válidas:** {serie_num.notna().sum()}")
 
-        # Distribución de respuestas
         dist = (
             serie_num.value_counts()
             .sort_index()
@@ -401,7 +411,6 @@ def pagina_encuesta_calidad():
             st.altair_chart(chart, use_container_width=True)
 
     else:
-        # Pregunta de texto / categórica
         st.info("Esta pregunta no es numérica 1–5; se muestran respuestas más frecuentes.")
         top_txt = _top_respuestas_texto(serie_bruta, top_n=10)
         if top_txt.empty:
@@ -410,7 +419,6 @@ def pagina_encuesta_calidad():
             st.write("Respuestas más frecuentes:")
             st.dataframe(top_txt, use_container_width=True)
 
-    # Comentarios (si es texto, ya los mostramos arriba)
     if serie_bruta.dtype == "object":
         st.markdown("### Comentarios (muestra)")
         ejemplos = (
