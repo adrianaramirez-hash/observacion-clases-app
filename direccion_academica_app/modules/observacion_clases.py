@@ -212,7 +212,10 @@ def clean_comment(text: str):
         return ""
     # descartamos respuestas típicas de "sin comentario"
     lower = t.lower()
-    basura = ["no", "ninguno", "ninguna", "na", "n/a", "no aplica", "sin comentarios", "sin comentario", "ninguno.", "ninguna."]
+    basura = [
+        "no", "ninguno", "ninguna", "na", "n/a", "no aplica",
+        "sin comentarios", "sin comentario", "ninguno.", "ninguna."
+    ]
     if lower in basura:
         return ""
     # descartamos "sí" o similares muy cortos
@@ -225,7 +228,9 @@ def extract_top_comments(df: pd.DataFrame):
     if df is None or df.empty:
         return pd.DataFrame(columns=["Comentario", "Frecuencia"])
     # Detectamos columnas de texto de comentarios
-    cols = [c for c in df.columns if any(k in c.lower() for k in ["coment", "suger", "por qué", "por que", "porque", "observa"])]
+    cols = [c for c in df.columns if any(
+        k in c.lower() for k in ["coment", "suger", "por qué", "por que", "porque", "observa"]
+    )]
     if not cols:
         return pd.DataFrame(columns=["Comentario", "Frecuencia"])
     texts = []
@@ -249,7 +254,6 @@ def extract_top_comments(df: pd.DataFrame):
     ]
     df_out = pd.DataFrame(rows).sort_values("Frecuencia", ascending=False)
     return df_out
-
 
 # ------------------------------------------------------------
 # Render de vistas
@@ -284,7 +288,8 @@ def render_vista_rectoria(forms_data, apps_row):
     with col1:
         st.metric("Respuestas totales (3 formularios)", f"{total_respuestas}")
     with col2:
-        st.metric("Aplicación seleccionada", f"{apps_row['aplicacion_id']} – {apps_row['descripcion']}")
+        st.metric("Aplicación seleccionada",
+                  f"{apps_row['aplicacion_id']} – {apps_row['descripcion']}")
     with col3:
         if pd.isna(indice_udl):
             st.metric("Índice global de satisfacción UDL", "—")
@@ -314,7 +319,8 @@ def render_vista_rectoria(forms_data, apps_row):
     for eje in EJES_ORDEN:
         filas_ejes.append({
             "Eje transversal": eje,
-            "Promedio 1–5": round(eje_means.get(eje, np.nan), 2) if not pd.isna(eje_means.get(eje, np.nan)) else np.nan,
+            "Promedio 1–5": round(eje_means.get(eje, np.nan), 2)
+            if not pd.isna(eje_means.get(eje, np.nan)) else np.nan,
         })
     st.dataframe(pd.DataFrame(filas_ejes))
 
@@ -339,7 +345,8 @@ def render_vista_direccion_academica(forms_data):
     with col1:
         st.metric("Respuestas del formulario", f"{len(df)}")
     with col2:
-        st.metric("Índice global 1–5 del formulario", f"{indice_global:.2f}" if not pd.isna(indice_global) else "—")
+        st.metric("Índice global 1–5 del formulario",
+                  f"{indice_global:.2f}" if not pd.isna(indice_global) else "—")
 
     st.markdown("### Promedio por sección")
     cfg = FORMS_CONFIG[form_key]
@@ -372,7 +379,8 @@ def render_vista_direccion_academica(forms_data):
         rows_rank.append({
             "Servicio / programa": servicio,
             "Respuestas": len(group),
-            "Promedio global 1–5": round(indice_serv, 2) if not pd.isna(indice_serv) else np.nan,
+            "Promedio global 1–5": round(indice_serv, 2)
+            if not pd.isna(indice_serv) else np.nan,
         })
     df_rank = pd.DataFrame(rows_rank).sort_values("Promedio global 1–5", ascending=False)
     st.dataframe(df_rank)
@@ -418,7 +426,8 @@ def render_vista_director(forms_data):
     with col2:
         st.metric("Respuestas del servicio", f"{len(df_serv)}")
     with col3:
-        st.metric("Índice global 1–5 del servicio", f"{indice_global:.2f}" if not pd.isna(indice_global) else "—")
+        st.metric("Índice global 1–5 del servicio",
+                  f"{indice_global:.2f}" if not pd.isna(indice_global) else "—")
 
     st.markdown("### Promedios por sección del servicio")
     filas = []
@@ -444,7 +453,8 @@ def render_vista_director(forms_data):
             vals = pd.to_numeric(df_serv[col], errors="coerce")
             detalle.append({
                 "Pregunta": col,
-                "Promedio 1–5": round(vals.mean(), 2) if not vals.dropna().empty else np.nan,
+                "Promedio 1–5": round(vals.mean(), 2)
+                if not vals.dropna().empty else np.nan,
             })
         st.dataframe(pd.DataFrame(detalle))
 
@@ -455,16 +465,18 @@ def render_vista_director(forms_data):
     else:
         st.dataframe(df_comentarios)
 
-
 # ------------------------------------------------------------
-# App principal
+# Página que usará tu app principal
 # ------------------------------------------------------------
 
-def main():
-    st.set_page_config(page_title="Encuesta de calidad UDL", layout="wide")
+def pagina_encuesta_calidad():
+    """Página principal de la Encuesta de calidad, para ser llamada desde app.py."""
     st.title("Encuesta de calidad de servicios UDL")
 
-    st.markdown("Sube el archivo de respuestas (exportado de Google Sheets a Excel) que contenga las hojas de los 3 formularios y la hoja **Aplicaciones**.")
+    st.markdown(
+        "Sube el archivo de respuestas (exportado de Google Sheets a Excel) "
+        "que contenga las hojas de los 3 formularios y la hoja **Aplicaciones**."
+    )
 
     archivo = st.file_uploader("Archivo Excel", type=["xlsx", "xls"])
     if not archivo:
@@ -496,14 +508,17 @@ def main():
     # Selector de aplicación (único control que realmente "manda")
     st.sidebar.header("Aplicación")
     label_sel = st.sidebar.selectbox("Selecciona la aplicación", df_apps["label"].tolist())
-    
+
     apps_row = df_apps[df_apps["label"] == label_sel].iloc[0]
     fecha_inicio = parse_date_safe(apps_row["fecha_inicio"])
     fecha_fin = parse_date_safe(apps_row["fecha_fin"])
 
-    # Selector de vista (en la parte superior, sin mencionar rangos de fecha ni marca temporal)
+    # Selector de vista (sin mencionar rangos de fecha ni marca temporal)
     st.sidebar.header("Vista")
-    vista = st.sidebar.radio("Selecciona la vista", ["Rectoría", "Dirección Académica", "Director / Coordinador"])
+    vista = st.sidebar.radio(
+        "Selecciona la vista",
+        ["Rectoría", "Dirección Académica", "Director / Coordinador"]
+    )
 
     # Preparamos los datos filtrados para cada formulario
     forms_data = {}  # form_key -> (df_filtrado, question_cols)
@@ -535,7 +550,3 @@ def main():
         render_vista_direccion_academica(forms_data)
     else:
         render_vista_director(forms_data)
-
-
-if __name__ == "__main__":
-    main()
