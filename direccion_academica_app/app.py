@@ -2,7 +2,8 @@ import streamlit as st
 from modules.observacion_clases import pagina_observacion_clases
 from modules.encuesta_calidad import pagina_encuesta_calidad
 
-# Configuración general de la página
+# ⚠️ OJO: si esto da problemas, podemos moverlo dentro de main(),
+# pero así también funciona en la mayoría de los casos.
 st.set_page_config(
     page_title="Dirección Académica UDL",
     layout="wide"
@@ -23,9 +24,11 @@ def main():
     col_logo, col_spacer, col_title = st.columns([1, 1, 3])
 
     with col_logo:
+        # Ruta del logo: como estás dentro de direccion_academica_app,
+        # basta con "assets/udl_logo.png"
         st.image(
-            "direccion_academica_app/assets/udl_logo.png",
-            width=180,  # ajusta el tamaño si quieres
+            "assets/udl_logo.png",
+            width=180,
         )
 
     with col_title:
@@ -46,11 +49,12 @@ def main():
     # ===== Navegación por módulos =====
     if opcion == "Observación de clases":
         pagina_observacion_clases()
+
     elif opcion == "Encuesta de calidad":
         pagina_encuesta_calidad()
+
     else:
         st.info(f"El módulo **{opcion}** aún no está configurado.")
 
 if __name__ == "__main__":
     main()
-
