@@ -1,4 +1,5 @@
 import streamlit as st
+from modules.observacion_clases import pagina_observacion_clases
 
 # -------------------------------------------------------
 # Configuración general de la página
@@ -8,7 +9,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Menú principal (lo iremos conectando poco a poco)
+# Menú principal
 MENU = [
     "Observación de clases",
     "Encuesta de calidad",
@@ -25,7 +26,6 @@ def main():
     col_logo, col_title = st.columns([1, 3])
 
     with col_logo:
-        # IMPORTANTE: el logo está en /assets/udl_logo.png
         st.image("assets/udl_logo.png", width=180)
 
     with col_title:
@@ -46,34 +46,21 @@ def main():
     # ================= NAVEGACIÓN POR MÓDULOS =================
     if opcion == "Observación de clases":
         mostrar_observacion_clases()
-
     elif opcion == "Encuesta de calidad":
         mostrar_encuesta_calidad()
-
     else:
-        # Placeholders para módulos que iremos construyendo
         st.info(f"El módulo **{opcion}** aún no está configurado.")
 
 
 # -------------------------------------------------------
-# Vistas / módulos (por ahora solo placeholders)
+# Vistas / módulos
 # -------------------------------------------------------
-
 def mostrar_observacion_clases():
-    """
-    Aquí conectaremos más adelante tu app de Observación de clases
-    (la que ya funciona con Google Sheets).
-    De momento dejamos un mensaje para que la app no truene.
-    """
-    st.subheader("Módulo: Observación de clases")
-    st.success("El módulo de Observación de clases se integrará aquí. ✅")
+    # Aquí simplemente llamamos a la página del módulo
+    pagina_observacion_clases()
 
 
 def mostrar_encuesta_calidad():
-    """
-    Aquí conectaremos después el módulo grande de Encuesta de calidad
-    (los 3 formularios, vistas Rectoría / Dirección Académica / Director).
-    """
     st.subheader("Módulo: Encuesta de calidad")
     st.info("El módulo de Encuesta de calidad está en construcción. 🔧")
 
