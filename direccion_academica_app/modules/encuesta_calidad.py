@@ -8,22 +8,22 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 
-# -------------------------------------------------------------------
-# CONFIGURACIÓN BÁSICA
-# -------------------------------------------------------------------
+# ============================================================
+# CONFIGURACIÓN GENERAL
+# ============================================================
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
-# URL del archivo CONCENTRADO_CALIDAD_2025 (el que tiene las 3 hojas + Aplicaciones)
 SPREADSHEET_URL = (
     "https://docs.google.com/spreadsheets/d/1WAk0Jv42MIyn0iImsAT2YuCsC8-YphKnFxgJYQZKjqU"
 )
 
-# Helper: convertir letras de columna de Excel a índice 0-based
+
 def _col_letras_a_indice(letras: str) -> int:
+    """Convierte letras de columna (ej. 'C') a índice 0-based."""
     letras = letras.strip().upper()
     idx = 0
     for ch in letras:
@@ -31,128 +31,206 @@ def _col_letras_a_indice(letras: str) -> int:
     return idx - 1
 
 
-# Config por formulario
-# OJO: si cambias nombres de hojas en el archivo de Google Sheets, actualiza "sheet"
+def _columnas_por_rango(df: pd.DataFrame, col_ini: str, col_fin: str):
+    """Devuelve nombres de columnas entre col_ini y col_fin (inclusive), usando letras estilo Excel."""
+    cols = list(df.columns)
+    i_ini = max(0, min(_col_letras_a_indice(col_ini), len(cols) - 1))
+    i_fin = max(0, min(_col_letras_a_indice(col_fin), len(cols) - 1))
+    if i_fin < i_ini:
+        i_ini, i_fin = i_fin, i_ini
+    return cols[i_ini : i_fin + 1]
+
+
+# ------------------------------------------------------------
+# CONFIG POR FORMULARIO Y SECCIONES
+# ------------------------------------------------------------
+
 FORM_CONFIG = {
-    "Servicios virtuales y mixtos": {
+    "servicios virtual y mixto virtual": {
+        "nombre": "Servicios virtuales y mixtos",
         "sheet": "servicios virtual y mixto virtual",
-        "aplicaciones_formulario": "servicios virtual y mixto virtual",
-        # si quieres forzar una columna de servicio, pon aquí el nombre exacto
-        "col_servicio": None,
-        "col_fecha": None,  # se detecta por nombre si es None
-        # secciones (nombre, col_inicio, col_fin) usando letras de Excel
         "secciones": OrderedDict(
             [
-                ("Director / Coordinador", ("C", "G")),
-                ("Aprendizaje", ("H", "P")),
-                ("Materiales en la plataforma", ("Q", "U")),
-                ("Evaluación del conocimiento", ("V", "Y")),
-                ("Acceso a soporte académico", ("Z", "AD")),
-                ("Acceso a soporte administrativo", ("AE", "AI")),
-                ("Comunicación con compañeros", ("AJ", "AQ")),
-                ("Recomendación", ("AR", "AU")),
-                ("Plataforma SEAC", ("AV", "AZ")),
-                ("Comunicación con la universidad", ("BA", "BE")),
+                (
+                    "Director / Coordinador",
+                    {"rango": ("C", "G"), "eje": "Dirección / Coordinación"},
+                ),
+                (
+                    "Aprendizaje",
+                    {"rango": ("H", "P"), "eje": "Servicios académicos"},
+                ),
+                (
+                    "Materiales en la plataforma",
+                    {"rango": ("Q", "U"), "eje": "Servicios académicos"},
+                ),
+                (
+                    "Evaluación del conocimiento",
+                    {"rango": ("V", "Y"), "eje": "Servicios académicos"},
+                ),
+                (
+                    "Acceso a soporte académico",
+                    {"rango": ("Z", "AD"), "eje": "Servicios académicos"},
+                ),
+                (
+                    "Acceso a soporte administrativo",
+                    {"rango": ("AE", "AI"), "eje": "Servicios administrativos"},
+                ),
+                (
+                    "Comunicación con compañeros",
+                    {"rango": ("AJ", "AQ"), "eje": "Ambiente escolar"},
+                ),
+                (
+                    "Recomendación",
+                    {"rango": ("AR", "AU"), "eje": "Satisfacción general"},
+                ),
+                (
+                    "Plataforma SEAC",
+                    {"rango": ("AV", "AZ"), "eje": "Servicios académicos"},
+                ),
+                (
+                    "Comunicación con la universidad",
+                    {"rango": ("BA", "BE"), "eje": "Comunicación institucional"},
+                ),
             ]
         ),
-        # columnas de comentarios (si conoces los nombres exactos, puedes listarlos aquí)
-        "comentarios_cols": [],
     },
-    "Servicios escolarizados y licenciaturas ejecutivas 2025": {
+    "servicios escolarizados y licenciaturas ejecutivas 2025": {
+        "nombre": "Servicios escolarizados y licenciaturas ejecutivas 2025",
         "sheet": "servicios escolarizados y licenciaturas ejecutivas 2025",
-        "aplicaciones_formulario": "servicios escolarizados y licenciaturas ejecutivas 2025",
-        "col_servicio": None,
-        "col_fecha": None,
         "secciones": OrderedDict(
             [
-                ("Servicios administrativos / operativos", ("I", "V")),
-                ("Servicios académicos", ("W", "AH")),
-                ("Director / Coordinador", ("AI", "AM")),
-                ("Instalaciones y equipo tecnológico", ("AN", "AX")),
-                ("Ambiente escolar", ("AY", "BE")),
+                (
+                    "Servicios administrativos / apoyo",
+                    {"rango": ("I", "V"), "eje": "Servicios administrativos"},
+                ),
+                (
+                    "Servicios académicos",
+                    {"rango": ("W", "AH"), "eje": "Servicios académicos"},
+                ),
+                (
+                    "Director / Coordinador",
+                    {"rango": ("AI", "AM"), "eje": "Dirección / Coordinación"},
+                ),
+                (
+                    "Instalaciones y equipo tecnológico",
+                    {"rango": ("AN", "AX"), "eje": "Infraestructura y equipo"},
+                ),
+                (
+                    "Ambiente escolar",
+                    {"rango": ("AY", "BE"), "eje": "Ambiente escolar"},
+                ),
             ]
         ),
-        "comentarios_cols": [],
     },
     "Preparatoria 2025": {
+        "nombre": "Preparatoria 2025",
         "sheet": "Preparatoria 2025",
-        "aplicaciones_formulario": "Preparatoria 2025",
-        "col_servicio": None,
-        "col_fecha": None,
         "secciones": OrderedDict(
             [
-                ("Servicios administrativos / apoyo", ("H", "Q")),
-                ("Servicios académicos", ("R", "AC")),
-                ("Directores y coordinadores", ("AD", "BB")),
-                ("Instalaciones y equipo tecnológico", ("BC", "BN")),
-                ("Ambiente escolar", ("BO", "BU")),
+                (
+                    "Servicios administrativos / apoyo",
+                    {"rango": ("H", "Q"), "eje": "Servicios administrativos"},
+                ),
+                (
+                    "Servicios académicos",
+                    {"rango": ("R", "AC"), "eje": "Servicios académicos"},
+                ),
+                (
+                    "Directores y coordinadores",
+                    {"rango": ("AD", "BB"), "eje": "Dirección / Coordinación"},
+                ),
+                (
+                    "Instalaciones y equipo tecnológico",
+                    {"rango": ("BC", "BN"), "eje": "Infraestructura y equipo"},
+                ),
+                (
+                    "Ambiente escolar",
+                    {"rango": ("BO", "BU"), "eje": "Ambiente escolar"},
+                ),
             ]
         ),
-        "comentarios_cols": [],
     },
 }
 
 
-# -------------------------------------------------------------------
-# CARGA DE DATOS
-# -------------------------------------------------------------------
+# ============================================================
+# CARGA DE HOJAS (evitando duplicados en encabezados)
+# ============================================================
+
+def _load_ws_as_df(ws) -> pd.DataFrame:
+    """Lee una hoja de cálculo en un DataFrame y arregla encabezados duplicados."""
+    values = ws.get_all_values()
+    if not values:
+        return pd.DataFrame()
+
+    header = values[0]
+    rows = values[1:]
+
+    seen = {}
+    fixed_header = []
+    for h in header:
+        name = h if h else "Columna"
+        if name in seen:
+            seen[name] += 1
+            name = f"{name} ({seen[name]})"
+        else:
+            seen[name] = 1
+        fixed_header.append(name)
+
+    df = pd.DataFrame(rows, columns=fixed_header)
+    df.replace("", np.nan, inplace=True)
+    return df
 
 
 @st.cache_data(ttl=300)
-def _cargar_datos_calidad():
-    """Carga TODAS las hojas de la encuesta de calidad + hoja Aplicaciones."""
+def cargar_datos():
+    """Carga los 3 formularios y la hoja Aplicaciones."""
     creds_dict = json.loads(st.secrets["gcp_service_account_json"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
-
     sh = client.open_by_url(SPREADSHEET_URL)
 
-    datos_formularios = {}
-    for nombre_vista, conf in FORM_CONFIG.items():
+    formularios = {}
+    for form_id, conf in FORM_CONFIG.items():
         ws = sh.worksheet(conf["sheet"])
-        df = pd.DataFrame(ws.get_all_records())
-        datos_formularios[nombre_vista] = df
+        formularios[form_id] = _load_ws_as_df(ws)
 
-    # Hoja de aplicaciones (una fila por formulario / aplicación anual)
     ws_app = sh.worksheet("Aplicaciones")
-    df_app = pd.DataFrame(ws_app.get_all_records())
+    df_app = _load_ws_as_df(ws_app)
 
-    return datos_formularios, df_app
+    # Parseo de fechas en Aplicaciones
+    if "fecha_inicio" in df_app.columns:
+        df_app["fecha_inicio"] = pd.to_datetime(df_app["fecha_inicio"], errors="coerce")
+    if "fecha_fin" in df_app.columns:
+        df_app["fecha_fin"] = pd.to_datetime(df_app["fecha_fin"], errors="coerce")
+
+    return formularios, df_app
 
 
-# -------------------------------------------------------------------
-# MAPEO DE RESPUESTAS A ESCALA 1–5
-# -------------------------------------------------------------------
+# ============================================================
+# MAPEOS A ESCALA 1–5
+# ============================================================
 
-
-def _mapear_a_likert(valor):
-    """Convierte respuestas de texto a escala 1–5.
-
-    Devuelve np.nan cuando no puede mapear.
-    """
+def mapear_a_likert(valor):
+    """Convierte texto / número a escala 1–5."""
     if pd.isna(valor):
         return np.nan
-
     s = str(valor).strip()
     if not s:
         return np.nan
 
-    # Intento directo numérico
+    # Intento numérico directo
     try:
         v = float(s.replace(",", "."))
-        # si está en 1–5, lo usamos directo
         if 1 <= v <= 5:
             return v
-        # si está en 0–10, lo re-escalamos a 1–5
         if 0 <= v <= 10:
-            return (v / 10.0) * 4 + 1
+            return (v / 10.0) * 4 + 1  # mapeo 0-10 a 1-5
     except Exception:
         pass
 
     s_low = s.lower()
 
-    # Mapas típicos de satisfacción / acuerdo
-    # Orden importante: de más específico a más general
     patrones = [
         (["totalmente en desacuerdo", "muy en desacuerdo"], 1),
         (["en desacuerdo"], 2),
@@ -180,159 +258,81 @@ def _mapear_a_likert(valor):
         if any(p in s_low for p in palabras):
             return float(puntaje)
 
-    # Sí / No (solo si no hay nada mejor)
     if s_low in ["sí", "si", "yes"]:
         return 5.0
-    if s_low in ["no"]:
+    if s_low == "no":
         return 1.0
 
     return np.nan
 
 
-def _serie_likert(columna):
-    return columna.apply(_mapear_a_likert)
+def serie_likert(series: pd.Series) -> pd.Series:
+    return series.apply(mapear_a_likert)
 
 
-# -------------------------------------------------------------------
-# UTILIDADES DE CONFIG / DETECCIÓN
-# -------------------------------------------------------------------
+# ============================================================
+# HELPERS: FECHAS / SERVICIOS / COMENTARIOS
+# ============================================================
 
-
-def _detectar_col_fecha(df: pd.DataFrame, conf: dict) -> str | None:
-    if conf.get("col_fecha") and conf["col_fecha"] in df.columns:
-        return conf["col_fecha"]
+def detectar_col_fecha(df: pd.DataFrame) -> str | None:
     for col in df.columns:
         c = col.lower()
-        if "marca temporal" in c or ("fecha" in c and "nacimiento" not in c):
+        if "marca temporal" in c or ("fecha" in c and "nac" not in c):
             return col
     return None
 
 
-def _detectar_col_servicio(df: pd.DataFrame, conf: dict) -> str | None:
-    if conf.get("col_servicio") and conf["col_servicio"] in df.columns:
-        return conf["col_servicio"]
+def detectar_col_servicio(df: pd.DataFrame) -> str | None:
     for col in df.columns:
         c = col.lower()
-        if any(p in c for p in ["programa", "carrera", "servicio", "nivel educativo"]):
+        if any(p in c for p in ["programa", "carrera", "servicio", "grupo", "nivel educativo"]):
             return col
     return None
 
 
-def _columnas_de_seccion(df: pd.DataFrame, conf: dict, nombre_seccion: str):
-    secciones = conf["secciones"]
-    if nombre_seccion not in secciones:
-        return []
-    letra_ini, letra_fin = secciones[nombre_seccion]
-    i_ini = _col_letras_a_indice(letra_ini)
-    i_fin = _col_letras_a_indice(letra_fin)
-    cols = df.columns.tolist()
-    # ajuste por si los índices se salen
-    i_ini = max(0, min(i_ini, len(cols) - 1))
-    i_fin = max(0, min(i_fin, len(cols) - 1))
-    if i_fin < i_ini:
-        i_ini, i_fin = i_fin, i_ini
-    return cols[i_ini : i_fin + 1]
+def filtrar_por_aplicacion(df: pd.DataFrame, df_app: pd.DataFrame, formulario_id: str, aplicacion_id: str) -> pd.DataFrame:
+    """Filtra un formulario según la aplicación elegida (rango de fechas)."""
+    df = df.copy()
+    mask_app = (df_app["formulario"] == formulario_id) & (df_app["aplicacion_id"] == aplicacion_id)
+    if not mask_app.any():
+        return df
+
+    fila = df_app[mask_app].iloc[0]
+    f_ini = fila.get("fecha_inicio")
+    f_fin = fila.get("fecha_fin")
+
+    col_fecha = detectar_col_fecha(df)
+    if col_fecha and pd.notna(f_ini) and pd.notna(f_fin):
+        fechas = pd.to_datetime(df[col_fecha], errors="coerce")
+        df = df[(fechas >= f_ini) & (fechas <= f_fin)]
+
+    return df
 
 
-def _todas_columnas_likert(df: pd.DataFrame, conf: dict):
-    """Todas las columnas que participan en las secciones."""
-    usadas = []
-    for nombre in conf["secciones"].keys():
-        usadas.extend(_columnas_de_seccion(df, conf, nombre))
-    # quitar duplicados manteniendo orden
-    vistos = set()
-    resultado = []
-    for c in usadas:
-        if c not in vistos and c in df.columns:
-            vistos.add(c)
-            resultado.append(c)
-    return resultado
-
-
-def _detectar_columnas_comentarios(df: pd.DataFrame, conf: dict):
-    if conf.get("comentarios_cols"):
-        return [c for c in conf["comentarios_cols"] if c in df.columns]
+def comentarios_frecuentes(df: pd.DataFrame, max_items: int = 15) -> pd.DataFrame:
+    """Encuentra comentarios abiertos más frecuentes."""
     candidatos = []
     for col in df.columns:
         c = col.lower()
-        if any(p in c for p in ["comentario", "sugerencia", "por qué", "por que", "motivo", "explique"]):
+        if any(p in c for p in ["comentario", "sugerencia", "por qué", "por que", "opinion", "opinión"]):
             candidatos.append(col)
-    return candidatos
 
-
-# -------------------------------------------------------------------
-# CÁLCULOS DE ÍNDICES Y TABLAS
-# -------------------------------------------------------------------
-
-
-def _indice_global_likert(df: pd.DataFrame, conf: dict) -> float | None:
-    cols = _todas_columnas_likert(df, conf)
-    valores = []
-    for c in cols:
-        serie = _serie_likert(df[c])
-        valores.extend(serie.dropna().tolist())
-    if not valores:
-        return None
-    return float(np.mean(valores))
-
-
-def _tabla_promedio_secciones(df: pd.DataFrame, conf: dict) -> pd.DataFrame:
-    registros = []
-    for nombre_seccion in conf["secciones"].keys():
-        cols = _columnas_de_seccion(df, conf, nombre_seccion)
-        valores = []
-        for c in cols:
-            if c in df.columns:
-                serie = _serie_likert(df[c])
-                valores.extend(serie.dropna().tolist())
-        prom = float(np.mean(valores)) if valores else None
-        registros.append(
-            {"Sección": nombre_seccion, "Promedio 1–5": round(prom, 2) if prom is not None else None}
-        )
-    return pd.DataFrame(registros)
-
-
-def _tabla_promedio_preguntas(df: pd.DataFrame, conf: dict) -> pd.DataFrame:
-    filas = []
-    for nombre_seccion in conf["secciones"].keys():
-        cols = _columnas_de_seccion(df, conf, nombre_seccion)
-        for c in cols:
-            if c not in df.columns:
-                continue
-            serie = _serie_likert(df[c])
-            valores = serie.dropna().tolist()
-            prom = float(np.mean(valores)) if valores else None
-            filas.append(
-                {
-                    "Sección": nombre_seccion,
-                    "Pregunta": c,
-                    "Promedio 1–5": round(prom, 2) if prom is not None else None,
-                }
-            )
-    if not filas:
-        return pd.DataFrame(columns=["Sección", "Pregunta", "Promedio 1–5"])
-    return pd.DataFrame(filas)
-
-
-def _comentarios_mas_frecuentes(df: pd.DataFrame, conf: dict, max_items: int = 15):
-    cols = _detectar_columnas_comentarios(df, conf)
-    if not cols:
+    if not candidatos:
         return pd.DataFrame(columns=["Comentario", "Frecuencia"])
 
     contador = Counter()
-    for c in cols:
+    for c in candidatos:
         serie = df[c].dropna().astype(str)
         for s in serie:
-            text = s.strip()
-            if not text:
+            txt = s.strip()
+            if not txt:
                 continue
-            low = text.lower()
-            # filtramos respuestas poco útiles
+            low = txt.lower()
             if low in ["si", "sí", "no", "na", "n/a", "ninguno", "ninguna"]:
                 continue
             if len(low) < 4:
                 continue
-            contador[text] += 1
+            contador[txt] += 1
 
     if not contador:
         return pd.DataFrame(columns=["Comentario", "Frecuencia"])
@@ -341,117 +341,69 @@ def _comentarios_mas_frecuentes(df: pd.DataFrame, conf: dict, max_items: int = 1
     return pd.DataFrame(items, columns=["Comentario", "Frecuencia"])
 
 
-def _info_aplicacion(df_app: pd.DataFrame, conf: dict):
-    """Devuelve (aplicacion_str, rango_fechas_str) o valores vacíos."""
-    formulario_id = conf.get("aplicaciones_formulario")
-    if not formulario_id or df_app.empty or "formulario" not in df_app.columns:
-        return "", ""
-    fila = df_app[df_app["formulario"] == formulario_id]
-    if fila.empty:
-        return "", ""
-    fila = fila.iloc[0]
-    aplicacion = str(fila.get("aplicacion_id", ""))
-    desc = str(fila.get("descripcion", "")).strip()
-    if desc:
-        aplicacion_str = f"{aplicacion} – {desc}"
-    else:
-        aplicacion_str = aplicacion
+# ============================================================
+# CÁLCULOS DE PROMEDIOS
+# ============================================================
 
-    fi = fila.get("fecha_inicio", "")
-    ff = fila.get("fecha_fin", "")
-    if fi and ff:
-        rango = f"{fi} – {ff}"
-    else:
-        rango = ""
-    return aplicacion_str, rango
+def promedio_seccion(df: pd.DataFrame, col_ini: str, col_fin: str) -> float | None:
+    cols = _columnas_por_rango(df, col_ini, col_fin)
+    valores = []
+    for c in cols:
+        serie = serie_likert(df[c])
+        valores.extend(serie.dropna().tolist())
+    if not valores:
+        return None
+    return float(np.mean(valores))
 
 
-# -------------------------------------------------------------------
-# PÁGINA PRINCIPAL
-# -------------------------------------------------------------------
-
-
-def pagina_encuesta_calidad():
-    st.header("Encuesta de calidad")
-
-    datos_formularios, df_aplicaciones = _cargar_datos_calidad()
-
-    # Selector de formulario
-    nombres_form = list(FORM_CONFIG.keys())
-    formulario_sel = st.selectbox("Selecciona un formulario", nombres_form)
-
-    df_form = datos_formularios.get(formulario_sel, pd.DataFrame())
-    conf = FORM_CONFIG[formulario_sel]
-
-    if df_form.empty:
-        st.warning("No se encontraron datos para este formulario.")
-        return
-
-    # Detectar columnas clave
-    col_fecha = _detectar_col_fecha(df_form, conf)
-    col_servicio = _detectar_col_servicio(df_form, conf)
-
-    df_trabajo = df_form.copy()
-
-    # Filtro por servicio / carrera
-    if col_servicio and col_servicio in df_trabajo.columns:
-        servicios = (
-            df_trabajo[col_servicio]
-            .dropna()
-            .astype(str)
-            .replace("", np.nan)
-            .dropna()
-            .unique()
-            .tolist()
+def promedios_por_seccion(df: pd.DataFrame, form_id: str) -> pd.DataFrame:
+    conf = FORM_CONFIG[form_id]
+    registros = []
+    for nombre_secc, info in conf["secciones"].items():
+        col_ini, col_fin = info["rango"]
+        prom = promedio_seccion(df, col_ini, col_fin)
+        registros.append(
+            {
+                "Sección": nombre_secc,
+                "Promedio 1–5": round(prom, 2) if prom is not None else None,
+            }
         )
-        servicios = sorted(servicios)
-        opcion_servicio = st.selectbox(
-            "Filtrar por programa / servicio",
-            ["(Todos)"] + servicios,
-        )
-        if opcion_servicio != "(Todos)":
-            df_trabajo = df_trabajo[df_trabajo[col_servicio].astype(str) == opcion_servicio]
-    else:
-        opcion_servicio = "(Todos)"
+    return pd.DataFrame(registros)
 
-    # KPIs
-    total_resp = len(df_trabajo)
 
-    aplicacion_str, rango_fechas_str = _info_aplicacion(df_aplicaciones, conf)
-    indice_global = _indice_global_likert(df_trabajo, conf)
+def indice_global_formulario(df: pd.DataFrame, form_id: str) -> float | None:
+    conf = FORM_CONFIG[form_id]
+    valores = []
+    for _, info in conf["secciones"].items():
+        col_ini, col_fin = info["rango"]
+        cols = _columnas_por_rango(df, col_ini, col_fin)
+        for c in cols:
+            serie = serie_likert(df[c])
+            valores.extend(serie.dropna().tolist())
+    if not valores:
+        return None
+    return float(np.mean(valores))
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Respuestas totales", total_resp)
-    with col2:
-        st.metric("Aplicación", aplicacion_str if aplicacion_str else "Sin registro")
-    with col3:
-        if indice_global is None or np.isnan(indice_global):
-            st.metric("Índice global de satisfacción", "Sin datos")
-        else:
-            st.metric("Índice global de satisfacción", f"{indice_global:.2f} / 5")
 
-    st.markdown("---")
+def promedios_por_servicio(df: pd.DataFrame, form_id: str) -> pd.DataFrame:
+    col_serv = detectar_col_servicio(df)
+    if not col_serv or col_serv not in df.columns:
+        return pd.DataFrame()
 
-    # Promedio por sección
-    st.subheader("Promedio por sección (escala 1–5)")
-    tabla_secciones = _tabla_promedio_secciones(df_trabajo, conf)
-    st.dataframe(tabla_secciones, use_container_width=True)
+    conf = FORM_CONFIG[form_id]
+    registros = []
 
-    # Promedio por pregunta
-    st.subheader("Promedio por pregunta (escala 1–5)")
-    tabla_preguntas = _tabla_promedio_preguntas(df_trabajo, conf)
-    if not tabla_preguntas.empty:
-        st.dataframe(tabla_preguntas, use_container_width=True)
-    else:
-        st.info("No se pudieron calcular promedios por pregunta (no hay datos mapeables a 1–5).")
-
-    st.markdown("---")
-
-    # Comentarios más frecuentes
-    st.subheader("Comentarios más frecuentes (según filtros actuales)")
-    df_coment = _comentarios_mas_frecuentes(df_trabajo, conf)
-    if df_coment.empty:
-        st.info("No se encontraron comentarios abiertos relevantes.")
-    else:
-        st.dataframe(df_coment, use_container_width=True)
+    for servicio, df_sub in df.groupby(col_serv):
+        valores = []
+        for _, info in conf["secciones"].items():
+            col_ini, col_fin = info["rango"]
+            cols = _columnas_por_rango(df_sub, col_ini, col_fin)
+            for c in cols:
+                serie = serie_likert(df_sub[c])
+                valores.extend(serie.dropna().tolist())
+        prom = float(np.mean(valores)) if valores else None
+        registros.append(
+            {
+                "Servicio / programa": servicio,
+                "Respuestas": len(df_sub),
+                "Promedio global 
