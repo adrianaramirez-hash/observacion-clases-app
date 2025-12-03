@@ -20,6 +20,15 @@ MENU = [
 def mostrar_observacion_clases():
     pagina_observacion_clases()
 
+
+def mostrar_en_construccion(nombre_modulo: str):
+    """Muestra un mensaje base para módulos aún no desarrollados."""
+    st.header(nombre_modulo)
+    st.warning(
+        "Próximamente podrás trabajar esta sección. Usa este espacio para agregar "
+        "formularios, reportes y gráficas a medida que el ecosistema evolucione."
+    )
+
 def main():
     # ===== Encabezado: logo a la izquierda, texto a la derecha =====
     col_logo, col_spacer, col_title = st.columns([1, 1, 3])
@@ -49,7 +58,7 @@ def main():
     if opcion == "Observación de clases":
         mostrar_observacion_clases()
     else:
-        st.info(f"El módulo **{opcion}** aún no está configurado.")
+        mostrar_en_construccion(opcion)
 
 if __name__ == "__main__":
     main()
